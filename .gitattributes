@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.gaml text eol=lf
+*.md text eol=lf
+*.docx binary
+*.pdf binary
