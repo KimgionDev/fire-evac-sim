@@ -3,6 +3,7 @@
 .metadata/
 .built_in_models_*/
 .gama_application_workspace
+.settings/
 *.log
 
 # OS
