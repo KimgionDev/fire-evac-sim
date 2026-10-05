@@ -1,0 +1,14 @@
+# GAMA workspace
+.cache/
+.metadata/
+.built_in_models_*/
+.gama_application_workspace
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
