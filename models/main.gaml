@@ -3,18 +3,23 @@
  * Description: Mô phỏng sơ tán khẩn cấp khi hỏa hoạn (Fire Evacuation Simulation)
  * Project: CT189 - Nhập môn Mô phỏng (Đại học Cần Thơ)
  */
-
 model FireEvacuationSimulation
 
+import "rescue_and_fire.gaml"
 // ============ GLOBAL ============
 global {
     // Kích thước bản đồ (50x50 ô)
     int grid_width  <- 50;
     int grid_height <- 50;
 
+	// --- BỔ SUNG CỦA LÂM (TV3): Khai báo số lượng tác tử ---
+    int nb_firefighters <- 2; // 2 Lính dập lửa
+    int nb_rescuers     <- 1; // 1 Lính cứu hộ/dẫn người
+
     init {
         // Khởi tạo layout văn phòng và gán cờ cho từng ô floor_cell
         do setup_map;
+        do setup_fire_and_rescuers;
     }
 
     action setup_map {
@@ -174,6 +179,39 @@ global {
             }
         }
     }
+	// --- BỔ SUNG CỦA LÂM (TV3): Hàm tạo Lửa và Lính cứu hộ ---
+    action setup_fire_and_rescuers {
+        // A. Tạo Ngọn lửa (Fire) tại khu vực Bếp (sử dụng cờ is_kitchen của Phát)
+        list<floor_cell> kitchen_cells <- floor_cell where (each.is_kitchen and !each.is_wall);
+        if (!empty(kitchen_cells)) {
+            create Fire number: 2 {
+                location <- one_of(kitchen_cells).location;
+            }
+        } else {
+            // Dự phòng nếu chưa tìm thấy ô kitchen
+            create Fire number: 2 { location <- {15.0, 38.0}; }
+        }
+        
+        // B. Tạo Firefighter & Rescuer ở Bên ngoài tòa nhà (sử dụng cờ is_outside của Phát)
+        list<floor_cell> outside_cells <- floor_cell where (each.is_outside);
+        if (!empty(outside_cells)) {
+            create Firefighter number: nb_firefighters {
+                location <- one_of(outside_cells).location;
+            }
+            create Rescuer number: nb_rescuers {
+                location <- one_of(outside_cells).location;
+            }
+        } else {
+            // Dự phòng tọa độ ngoài tòa nhà
+            create Firefighter number: nb_firefighters { location <- {5.0, 48.0}; }
+            create Rescuer number: nb_rescuers { location <- {45.0, 48.0}; }
+        }
+        
+        // In dòng kiểm tra ra Console
+        write "========================================";
+        write "DA TAO THANH CONG: " + length(Firefighter) + " Firefighter, " + length(Rescuer) + " Rescuer, " + length(Fire) + " Fire";
+        write "========================================";
+    }
 }
 
 // ============ GRID  ============
@@ -209,6 +247,11 @@ experiment FireEvacuation type: gui {
     output {
         display map {
             grid floor_cell border: #black;
+            
+            
+            species Fire aspect: default;
+            species Firefighter aspect: default;
+            species Rescuer aspect: default;
         }
     }
 }
