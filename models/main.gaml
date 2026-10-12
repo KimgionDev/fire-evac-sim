@@ -10,6 +10,7 @@ global {
     // Kích thước bản đồ (50x50 ô)
     int grid_width  <- 50;
     int grid_height <- 50;
+    int nb_evacuees <- 40;
 
 	// Khai báo số lượng tác tử ---
     int nb_firefighters <- 2; // 2 Lính dập lửa
@@ -20,6 +21,11 @@ global {
         // Khởi tạo layout văn phòng và gán cờ cho từng ô floor_cell
         do setup_map;
         do setup_fire_and_rescuers;
+        
+       // Spawn Evacuee trong các phòng (không đè lên vật cản)
+        create Evacuee number: nb_evacuees {
+            location <- any_location_in(one_of(floor_cell where (each.is_room and not each.is_wall)));
+        }
     }
 
     action setup_map {
@@ -240,6 +246,19 @@ grid floor_cell width: grid_width height: grid_height {
 
 // ============ EVACUEE ============
 // Do thành viên TV2 (AI Evacuee) phụ trách cài đặt
+species Evacuee skills: [moving] {
+    // Các thuộc tính cơ bản của tác tử
+    float stamina <- 100.0;
+    float panic_level <- 0.0;
+    float speed <- rnd(1.0, 1.5); // Chỉnh lại theo đúng đặc tả
+    float vision <- 10.0;         // Chỉnh lại theo đúng đặc tả
+    bool is_escaped <- false;
+
+    // Khối aspect quyết định hình ảnh hiển thị của tác tử trên bản đồ
+    aspect default {
+        draw circle(0.5) color: #blue border: #black;
+    }
+}
 
 // ============ RESCUEWORKER (cha) ============
 species RescueWorker skills: [moving] {
@@ -300,6 +319,7 @@ experiment FireEvacuation type: gui {
             species Fire aspect: default;
             species Firefighter aspect: default;
             species Rescuer aspect: default;
+            species Evacuee aspect: default;
         }
     }
-}
+ }
