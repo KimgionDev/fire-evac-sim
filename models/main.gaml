@@ -5,14 +5,13 @@
  */
 model FireEvacuationSimulation
 
-import "rescue_and_fire.gaml"
 // ============ GLOBAL ============
 global {
     // Kích thước bản đồ (50x50 ô)
     int grid_width  <- 50;
     int grid_height <- 50;
 
-	// --- BỔ SUNG CỦA LÂM (TV3): Khai báo số lượng tác tử ---
+	// Khai báo số lượng tác tử ---
     int nb_firefighters <- 2; // 2 Lính dập lửa
     int nb_rescuers     <- 1; // 1 Lính cứu hộ/dẫn người
 
@@ -179,20 +178,31 @@ global {
             }
         }
     }
-	// --- BỔ SUNG CỦA LÂM (TV3): Hàm tạo Lửa và Lính cứu hộ ---
+
+    // --- Hàm tạo Lửa và Lính cứu hộ ---
     action setup_fire_and_rescuers {
-        // A. Tạo Ngọn lửa (Fire) tại khu vực Bếp (sử dụng cờ is_kitchen của Phát)
+        // A. Tạo Ngọn lửa (Fire) tại khu vực Bếp và đánh dấu ô lưới
         list<floor_cell> kitchen_cells <- floor_cell where (each.is_kitchen and !each.is_wall);
         if (!empty(kitchen_cells)) {
             create Fire number: 2 {
                 location <- one_of(kitchen_cells).location;
+                ask floor_cell(location) {
+                    is_fire        <- true;
+                    is_fire_hazard <- true;
+                }
             }
         } else {
             // Dự phòng nếu chưa tìm thấy ô kitchen
-            create Fire number: 2 { location <- {15.0, 38.0}; }
+            create Fire number: 2 { 
+                location <- {15.0, 38.0}; 
+                ask floor_cell(location) {
+                    is_fire        <- true;
+                    is_fire_hazard <- true;
+                }
+            }
         }
         
-        // B. Tạo Firefighter & Rescuer ở Bên ngoài tòa nhà (sử dụng cờ is_outside của Phát)
+        // B. Tạo Firefighter & Rescuer ở Bên ngoài tòa nhà
         list<floor_cell> outside_cells <- floor_cell where (each.is_outside);
         if (!empty(outside_cells)) {
             create Firefighter number: nb_firefighters {
@@ -231,23 +241,68 @@ grid floor_cell width: grid_width height: grid_height {
 // Do thành viên TV2 (AI Evacuee) phụ trách cài đặt
 
 // ============ RESCUEWORKER (cha) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species RescueWorker skills: [moving] {
+    float stamina <- 200.0;
+    float speed <- 1.2;
+    float vision <- 15.0;
+    rgb color <- #blue;
+    
+    aspect default {
+        draw circle(1.0) color: color;
+    }
+}
+
 
 // ============ FIREFIGHTER (con) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Firefighter parent: RescueWorker {
+    float water_supply <- 100.0;
+    
+    init {
+        color <- #yellow;
+    }
+    
+    reflex wander_outside {
+        do wander bounds: union((floor_cell where (each.is_outside)) collect (each.shape));
+    }
+    
+    aspect default {
+        draw rectangle(1.2, 1.2) color: color;
+    }
+}
 
 // ============ RESCUER (con) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Rescuer parent: RescueWorker {
+    float calm_radius <- 4.0;
+    
+    init {
+        color <- #cyan;
+    }
+    
+    reflex wander_outside {
+        do wander bounds: union((floor_cell where (each.is_outside)) collect (each.shape));
+    }
+    
+    aspect default {
+        draw triangle(1.3) color: color;
+    }
+}
 
 // ============ FIRE ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Fire {
+    float intensity <- 100.0;
+    bool  is_active <- true;
+    rgb   color     <- #red;
+    
+    aspect default {
+        draw circle(0.8) color: color;
+    }
+}
 
 // ============ EXPERIMENT ============
 experiment FireEvacuation type: gui {
     output {
         display map {
             grid floor_cell border: #black;
-            
             
             species Fire aspect: default;
             species Firefighter aspect: default;
