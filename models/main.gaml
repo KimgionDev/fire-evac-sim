@@ -261,10 +261,6 @@ species Firefighter parent: RescueWorker {
         color <- #yellow;
     }
     
-    reflex wander_outside {
-        do wander bounds: union((floor_cell where (each.is_outside)) collect (each.shape));
-    }
-    
     aspect default {
         draw rectangle(1.2, 1.2) color: color;
     }
@@ -276,10 +272,6 @@ species Rescuer parent: RescueWorker {
     
     init {
         color <- #cyan;
-    }
-    
-    reflex wander_outside {
-        do wander bounds: union((floor_cell where (each.is_outside)) collect (each.shape));
     }
     
     aspect default {
