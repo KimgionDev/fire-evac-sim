@@ -14,6 +14,7 @@ global {
 	// Khai báo số lượng tác tử ---
     int nb_firefighters <- 2; // 2 Lính dập lửa
     int nb_rescuers     <- 1; // 1 Lính cứu hộ/dẫn người
+    int nb_initial_fires <- 2; // 2 đám cháy ban đầu
 
     init {
         // Khởi tạo layout văn phòng và gán cờ cho từng ô floor_cell
@@ -184,7 +185,7 @@ global {
         // A. Tạo Ngọn lửa (Fire) tại khu vực Bếp và đánh dấu ô lưới
         list<floor_cell> kitchen_cells <- floor_cell where (each.is_kitchen and !each.is_wall);
         if (!empty(kitchen_cells)) {
-            create Fire number: 2 {
+            create Fire number: nb_initial_fires {
                 location <- one_of(kitchen_cells).location;
                 ask floor_cell(location) {
                     is_fire        <- true;
@@ -193,7 +194,7 @@ global {
             }
         } else {
             // Dự phòng nếu chưa tìm thấy ô kitchen
-            create Fire number: 2 { 
+            create Fire number: nb_initial_fires { 
                 location <- {15.0, 38.0}; 
                 ask floor_cell(location) {
                     is_fire        <- true;
