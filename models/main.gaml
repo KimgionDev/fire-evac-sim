@@ -3,7 +3,6 @@
  * Description: Mô phỏng sơ tán khẩn cấp khi hỏa hoạn (Fire Evacuation Simulation)
  * Project: CT189 - Nhập môn Mô phỏng (Đại học Cần Thơ)
  */
-
 model FireEvacuationSimulation
 
 // ============ GLOBAL ============
@@ -13,9 +12,15 @@ global {
     int grid_height <- 50;
     int nb_evacuees <- 40;
 
+	// Khai báo số lượng tác tử ---
+    int nb_firefighters <- 2; // 2 Lính dập lửa
+    int nb_rescuers     <- 1; // 1 Lính cứu hộ/dẫn người
+    int nb_initial_fires <- 2; // 2 đám cháy ban đầu
+
     init {
         // Khởi tạo layout văn phòng và gán cờ cho từng ô floor_cell
         do setup_map;
+        do setup_fire_and_rescuers;
         
        // Spawn Evacuee trong các phòng (không đè lên vật cản)
         create Evacuee number: nb_evacuees {
@@ -180,6 +185,50 @@ global {
             }
         }
     }
+
+    // --- Hàm tạo Lửa và Lính cứu hộ ---
+    action setup_fire_and_rescuers {
+        // A. Tạo Ngọn lửa (Fire) tại khu vực Bếp và đánh dấu ô lưới
+        list<floor_cell> kitchen_cells <- floor_cell where (each.is_kitchen and !each.is_wall);
+        if (!empty(kitchen_cells)) {
+            create Fire number: nb_initial_fires {
+                location <- one_of(kitchen_cells).location;
+                ask floor_cell(location) {
+                    is_fire        <- true;
+                    is_fire_hazard <- true;
+                }
+            }
+        } else {
+            // Dự phòng nếu chưa tìm thấy ô kitchen
+            create Fire number: nb_initial_fires { 
+                location <- {15.0, 38.0}; 
+                ask floor_cell(location) {
+                    is_fire        <- true;
+                    is_fire_hazard <- true;
+                }
+            }
+        }
+        
+        // B. Tạo Firefighter & Rescuer ở Bên ngoài tòa nhà
+list<floor_cell> outside_cells <- floor_cell where (each.is_outside and !each.is_wall);
+        if (!empty(outside_cells)) {
+            create Firefighter number: nb_firefighters {
+                location <- one_of(outside_cells).location;
+            }
+            create Rescuer number: nb_rescuers {
+                location <- one_of(outside_cells).location;
+            }
+        } else {
+            // Dự phòng tọa độ ngoài tòa nhà
+            create Firefighter number: nb_firefighters { location <- {5.0, 48.0}; }
+            create Rescuer number: nb_rescuers { location <- {45.0, 48.0}; }
+        }
+        
+        // In dòng kiểm tra ra Console
+        write "========================================";
+        write "DA TAO THANH CONG: " + length(Firefighter) + " Firefighter, " + length(Rescuer) + " Rescuer, " + length(Fire) + " Fire";
+        write "========================================";
+    }
 }
 
 // ============ GRID  ============
@@ -212,22 +261,64 @@ species Evacuee skills: [moving] {
 }
 
 // ============ RESCUEWORKER (cha) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species RescueWorker skills: [moving] {
+    float stamina <- 200.0;
+    float speed <- 1.2;
+    float vision <- 15.0;
+    rgb color <- #blue;
+    
+    aspect default {
+        draw circle(1.0) color: color;
+    }
+}
+
 
 // ============ FIREFIGHTER (con) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Firefighter parent: RescueWorker {
+    float water_supply <- 100.0;
+    
+    init {
+        color <- #yellow;
+    }
+    
+    aspect default {
+        draw rectangle(1.2, 1.2) color: color;
+    }
+}
 
 // ============ RESCUER (con) ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Rescuer parent: RescueWorker {
+    float calm_radius <- 4.0;
+    
+    init {
+        color <- #cyan;
+    }
+    
+    aspect default {
+        draw triangle(1.3) color: color;
+    }
+}
 
 // ============ FIRE ============
-// Do thành viên TV3 (AI RescueWorker & Fire) phụ trách cài đặt
+species Fire {
+    float intensity <- 100.0;
+    bool  is_active <- true;
+    rgb   color     <- #red;
+    
+    aspect default {
+        draw circle(0.8) color: color;
+    }
+}
 
 // ============ EXPERIMENT ============
 experiment FireEvacuation type: gui {
     output {
         display map {
             grid floor_cell border: #black;
+            
+            species Fire aspect: default;
+            species Firefighter aspect: default;
+            species Rescuer aspect: default;
             species Evacuee aspect: default;
         }
     }
