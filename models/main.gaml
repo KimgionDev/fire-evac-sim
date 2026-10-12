@@ -203,7 +203,7 @@ global {
         }
         
         // B. Tạo Firefighter & Rescuer ở Bên ngoài tòa nhà
-        list<floor_cell> outside_cells <- floor_cell where (each.is_outside);
+list<floor_cell> outside_cells <- floor_cell where (each.is_outside and !each.is_wall);
         if (!empty(outside_cells)) {
             create Firefighter number: nb_firefighters {
                 location <- one_of(outside_cells).location;
