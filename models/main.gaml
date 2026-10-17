@@ -301,9 +301,16 @@ species Evacuee skills: [moving] {
     float vision      <- 10.0;
     bool  is_escaped  <- false;
 
-    // TODO (TV2): action compute_utility
-    // TODO (TV2): action flee_from, evacuate, follow_leader, flock
-    // TODO (TV2): reflex main_decision
+    action compute_utility {}
+    action flee_from (Fire target) {}
+    action evacuate (floor_cell target_exit) {}
+    action follow_leader (RescueWorker leader) {}
+    action flock {}
+    
+    reflex main_decision {
+        // TV2 sẽ viết logic giảm stamina/panic và kiểm tra tử vong tại đây
+    }
+    
     // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 
     aspect default {
@@ -311,21 +318,23 @@ species Evacuee skills: [moving] {
     }
 }
 
-// ============ RESCUEWORKER (cha) ============
+// ============ RESCUEWORKER ============
 species RescueWorker skills: [moving] {
     float stamina <- 200.0;
     float speed   <- 1.2;
     float vision  <- 15.0;
     rgb color     <- #blue;
 
-    // TODO (TV3): reflex stamina_loss
+    reflex stamina_loss {
+        stamina <- max(0.0, stamina - 0.05);
+    }
 
     aspect default {
         draw circle(1.0) color: color border: #black;
     }
 }
 
-// ============ FIREFIGHTER (con) ============
+// ============ FIREFIGHTER ============
 species Firefighter parent: RescueWorker {
     float water_supply <- 100.0;
 
@@ -333,8 +342,13 @@ species Firefighter parent: RescueWorker {
         color <- #yellow;
     }
 
-    // TODO (TV3): action compute_utility, action extinguish
-    // TODO (TV3): reflex main_decision
+    action compute_utility {}
+    action extinguish (Fire target) {}
+
+    reflex main_decision {
+        // TV3 viết logic dập lửa, di chuyển tới lửa (on: room_graph) tại đây
+    }
+    
     // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 
     aspect default {
@@ -342,7 +356,7 @@ species Firefighter parent: RescueWorker {
     }
 }
 
-// ============ RESCUER (con) ============
+// ============ RESCUER ============
 species Rescuer parent: RescueWorker {
     float calm_radius <- 4.0;
 
@@ -350,8 +364,13 @@ species Rescuer parent: RescueWorker {
         color <- #cyan;
     }
 
-    // TODO (TV3): action compute_utility, action guide
-    // TODO (TV3): reflex main_decision
+    action compute_utility {}
+    action guide (Evacuee target) {}
+
+    reflex main_decision {
+        // TV3 viết logic tuần tra/dẫn đường tại đây
+    }
+    
     // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 
     aspect default {
@@ -365,9 +384,14 @@ species Fire {
     bool  is_active <- true;
     rgb   color     <- #red;
 
-    // TODO (TV4): reflex spread
-    // TODO (TV4): reflex damage
-
+    reflex spread {
+        // TV3 viết logic lan lửa sang floor_cell lân cận tại đây
+    }
+    
+    reflex damage {
+        // TV3 viết logic trừ stamina tác tử đứng cạnh tại đây
+    }
+        
     aspect default {
         draw circle(0.8) color: color;
     }
