@@ -300,22 +300,129 @@ species Evacuee skills: [moving] {
     float speed       <- rnd(1.0, 1.5);
     float vision      <- 10.0;
     bool  is_escaped  <- false;
+    string current_action <- "IDLE";
+    
+    // 4 biến lưu điểm số tiện ích vừa tính được
+    float u_evacuate <- 0.0;
+    float u_flee     <- 0.0;
+    float u_follow   <- 0.0;
+    float u_flock    <- 0.0;
 
-    action compute_utility {}
+    action compute_utility {
+	    u_evacuate <- 0.0;
+	    u_flee     <- 0.0;
+	    u_follow   <- 0.0;
+	    u_flock    <- 0.0;
+	    
+	    floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+	    Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+	    list<RescueWorker> responders <- (Firefighter as list) + (Rescuer as list);
+	    RescueWorker nearest_worker <- empty(responders) ? nil : (responders closest_to self);
+	    int nearby_evacuees_count <- length(Evacuee at_distance 5.0);
+	    
+	    // 1. Điểm EVACUATE (Thoát hiểm)
+	    // Chỉ kích hoạt khi phát hiện lối thoát trong tầm nhìn (< vision)
+	    if (nearest_exit != nil and (self distance_to nearest_exit) < vision) {
+	        float dist_exit <- self distance_to nearest_exit;
+	        u_evacuate <- u_evacuate + 60.0; // Thấy lối thoát trong tầm nhìn
+	        
+	        if (dist_exit <= 2.0) {
+	            u_evacuate <- u_evacuate + 40.0; // Ở rất gần lối thoát
+	        }
+	        
+	        if (stamina < 20.0) {
+	            u_evacuate <- u_evacuate + 40.0; // Ưu tiên khẩn cấp khi kiệt sức
+	        }
+	    }
+	    
+	    // 2. Điểm FLEE_FIRE (Chạy né khói lửa)
+	    // Chỉ kích hoạt khi có lửa trong tầm nhìn (<= vision)
+	    if (nearest_fire != nil and (self distance_to nearest_fire) <= vision) {
+	        float dist_fire <- self distance_to nearest_fire;
+	        if (dist_fire <= 5.0) { u_flee <- u_flee + 50.0; }
+	        if (dist_fire <= 2.0) { u_flee <- u_flee + 50.0; } // Nguy cấp
+	        if (stamina < 40.0)   { u_flee <- u_flee + 30.0; } // Thể lực thấp khi có lửa gần
+	    }
+	    
+	    // 3. Điểm FOLLOW_LEADER (Đi theo cứu hộ)
+	    // ĐIỀU KIỆN TIÊN QUYẾT: Chỉ kích hoạt khi có RescueWorker trong bán kính 8 ô!
+	    if (nearest_worker != nil and (self distance_to nearest_worker) <= 8.0) {
+	        u_follow <- u_follow + 50.0;
+	        
+	        // Nếu bản thân chưa thấy lối thoát trong tầm nhìn -> càng muốn bám theo cứu hộ (+30)
+	        if (nearest_exit = nil or (self distance_to nearest_exit) >= vision) {
+	            u_follow <- u_follow + 30.0;
+	        }
+	        
+	        // Nếu hoảng loạn mất phương hướng -> cần người dẫn đường (+30)
+	        if (panic_level > 70.0) {
+	            u_follow <- u_follow + 30.0;
+	        }
+	    }
+	    
+	    // 4. Điểm FLOCK (Gộp nhóm đông người)
+	    if (nearby_evacuees_count >= 3) { u_flock <- u_flock + 40.0; }
+	    if (nearby_evacuees_count >= 1 and panic_level > 50.0) { u_flock <- u_flock + 20.0; }
+	    
+	    // BƯỚC D: So sánh và Tie-break (FLEE > EVACUATE > FOLLOW > FLOCK)
+	    float max_score <- max([u_flee, u_evacuate, u_follow, u_flock]);
+	    
+	    if (max_score <= 0.0) {
+	        current_action <- "IDLE";
+	    } else if (u_flee = max_score) {
+	        current_action <- "FLEE_FIRE";
+	    } else if (u_evacuate = max_score) {
+	        current_action <- "EVACUATE";
+	    } else if (u_follow = max_score) {
+	        current_action <- "FOLLOW_LEADER";
+	    } else {
+	        current_action <- "FLOCK";
+	    }
+    }
     action flee_from (Fire target) {}
     action evacuate (floor_cell target_exit) {}
     action follow_leader (RescueWorker leader) {}
     action flock {}
     
     reflex main_decision {
-        // TV2 sẽ viết logic giảm stamina/panic và kiểm tra tử vong tại đây
-    }
-    
-    // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
-
-    aspect default {
-        draw circle(0.5) color: #blue border: #black;
-    }
+	    stamina     <- max(0.0, stamina - 0.1);
+	    panic_level <- min(100.0, max(0.0, panic_level + 0.5));
+	
+	    if (floor_cell(location).is_exit) {
+	        is_escaped <- true;
+	        nb_escaped <- nb_escaped + 1;
+	        write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
+	        do die;
+	    }
+	    
+	    if (stamina <= 0.0 and not is_escaped) {
+	        nb_dead <- nb_dead + 1;
+	        write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
+	        do die;
+	    }
+	    
+	    do compute_utility;
+	    }
+	    
+	
+	    aspect default {
+	        rgb my_color <- #blue;
+	        if (current_action = "FLEE_FIRE") {
+	            my_color <- #red;
+	        } else if (current_action = "EVACUATE") {
+	            my_color <- #green;
+	        } else if (current_action = "FOLLOW_LEADER") {
+	            my_color <- #yellow;
+	        } else if (current_action = "FLOCK") {
+	            my_color <- rgb(155, 89, 182); // Màu tím
+	        }
+	       
+	        draw circle(0.6) color: my_color border: #black;
+	        
+	        if (current_action != "IDLE") {
+	            draw current_action size: 1.2 color: #black at: location + {0, -1};
+	        }
+	    }
 }
 
 // ============ RESCUEWORKER ============
