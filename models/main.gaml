@@ -342,14 +342,41 @@ species Firefighter parent: RescueWorker {
         color <- #yellow;
     }
 
-    action compute_utility {}
-    action extinguish (Fire target) {}
-
-    reflex main_decision {
-        // TV3 viết logic dập lửa, di chuyển tới lửa (on: room_graph) tại đây
+    // Action dập lửa
+    action extinguish (Fire target) {
+        if (target != nil) {
+            target.intensity <- target.intensity - 25.0; // Giảm độ mạnh ngọn lửa
+            water_supply <- max(0.0, water_supply - 1.0);  // Giảm lượng nước
+            
+            // Nếu ngọn lửa bị dập tắt hoàn toàn
+            if (target.intensity <= 0) {
+                ask floor_cell(target.location) {
+                    is_fire <- false;
+                    do update_color;
+                }
+                ask target {
+                    do die; // Xóa tác tử Fire
+                }
+            }
+        }
     }
-    
-    // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
+
+    // Logic quyết định di chuyển & dập lửa
+    reflex main_decision {
+        // Tìm ngọn lửa gần nhất
+//        Fire target_fire <- Fire min_by (self distance_to each);
+        Fire target_fire <- Fire closest_to self;
+        if (target_fire != nil) {
+            // Nếu đã đứng sát ngọn lửa (khoảng cách <= 1.5 ô) -> Thực hiện dập lửa
+            if (self distance_to target_fire <= 1.5) {
+                do extinguish(target_fire);
+            } 
+            // Nếu ở xa -> Di chuyển tới lửa trên đồ thị né tường (room_graph)
+            else {
+                do goto target: target_fire.location on: room_graph;
+            }
+        }
+    }
 
     aspect default {
         draw rectangle(1.2, 1.2) color: color border: #black;
@@ -384,12 +411,41 @@ species Fire {
     bool  is_active <- true;
     rgb   color     <- #red;
 
+    // 1. Lan truyền lửa ngẫu nhiên
     reflex spread {
-        // TV3 viết logic lan lửa sang floor_cell lân cận tại đây
+        if (flip(0.05)) { // Xác suất lan lửa (5% mỗi cycle)
+            floor_cell current_cell <- floor_cell(location);
+            if (current_cell != nil) {
+                // Tìm các ô lân cận không phải tường và chưa có lửa
+                list<floor_cell> neighbor_cells <- current_cell.neighbors where (not each.is_wall and not each.is_fire);
+                if (!empty(neighbor_cells)) {
+                    floor_cell target_cell <- one_of(neighbor_cells);
+                    create Fire {
+                        location <- target_cell.location;
+                        ask target_cell {
+                            is_fire        <- true;
+                            is_fire_hazard <- true;
+                            do update_color;
+                        }
+                    }
+                }
+            }
+        }
     }
     
+    // 2. Gây sát thương cho tác tử ở gần
     reflex damage {
-        // TV3 viết logic trừ stamina tác tử đứng cạnh tại đây
+        // Trừ stamina của Evacuee ở gần ngọn lửa (bán kính <= 1.5 ô)
+        list<Evacuee> nearby_evacuees <- Evacuee at_distance 1.5;
+        ask nearby_evacuees {
+            stamina <- max(0.0, stamina - 2.0);
+        }
+
+        // Trừ stamina của lính cứu hộ / lính cứu hỏa ở gần ngọn lửa
+        list<RescueWorker> nearby_workers <- RescueWorker at_distance 1.5;
+        ask nearby_workers {
+            stamina <- max(0.0, stamina - 1.0);
+        }
     }
         
     aspect default {
