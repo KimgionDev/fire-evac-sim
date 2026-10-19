@@ -342,20 +342,23 @@ species Firefighter parent: RescueWorker {
         color <- #yellow;
     }
 
+    action compute_utility {}
+
     // Action dập lửa
     action extinguish (Fire target) {
-        if (target != nil) {
-            target.intensity <- target.intensity - 25.0; // Giảm độ mạnh ngọn lửa
-            water_supply <- max(0.0, water_supply - 1.0);  // Giảm lượng nước
+        if (target != nil and water_supply > 0) {
+            target.intensity <- target.intensity - 20.0;  // Giảm 20 theo INTERFACE
+            water_supply     <- max(0.0, water_supply - 5.0);  // Giảm 5 theo INTERFACE
             
             // Nếu ngọn lửa bị dập tắt hoàn toàn
             if (target.intensity <= 0) {
                 ask floor_cell(target.location) {
-                    is_fire <- false;
+                    is_fire        <- false;
+                    is_fire_hazard <- false;  // Xóa cờ nguy hiểm
                     do update_color;
                 }
                 ask target {
-                    do die; // Xóa tác tử Fire
+                    do die;
                 }
             }
         }
@@ -363,16 +366,11 @@ species Firefighter parent: RescueWorker {
 
     // Logic quyết định di chuyển & dập lửa
     reflex main_decision {
-        // Tìm ngọn lửa gần nhất
-//        Fire target_fire <- Fire min_by (self distance_to each);
         Fire target_fire <- Fire closest_to self;
         if (target_fire != nil) {
-            // Nếu đã đứng sát ngọn lửa (khoảng cách <= 1.5 ô) -> Thực hiện dập lửa
             if (self distance_to target_fire <= 1.5) {
                 do extinguish(target_fire);
-            } 
-            // Nếu ở xa -> Di chuyển tới lửa trên đồ thị né tường (room_graph)
-            else {
+            } else {
                 do goto target: target_fire.location on: room_graph;
             }
         }
@@ -413,15 +411,16 @@ species Fire {
 
     // 1. Lan truyền lửa ngẫu nhiên
     reflex spread {
-        if (flip(0.05)) { // Xác suất lan lửa (5% mỗi cycle)
+        if (is_active and flip(0.05)) {  // 5% mỗi cycle
             floor_cell current_cell <- floor_cell(location);
             if (current_cell != nil) {
-                // Tìm các ô lân cận không phải tường và chưa có lửa
-                list<floor_cell> neighbor_cells <- current_cell.neighbors where (not each.is_wall and not each.is_fire);
+                // Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
+                list<floor_cell> neighbor_cells <- current_cell.neighbors where (not each.is_wall and not each.is_fire and not each.is_outside);
                 if (!empty(neighbor_cells)) {
                     floor_cell target_cell <- one_of(neighbor_cells);
                     create Fire {
-                        location <- target_cell.location;
+                        location  <- target_cell.location;
+                        intensity <- 50.0;  // Lửa mới tạo có intensity = 50
                         ask target_cell {
                             is_fire        <- true;
                             is_fire_hazard <- true;
@@ -435,16 +434,16 @@ species Fire {
     
     // 2. Gây sát thương cho tác tử ở gần
     reflex damage {
-        // Trừ stamina của Evacuee ở gần ngọn lửa (bán kính <= 1.5 ô)
+        // Trừ stamina của Evacuee (bán kính <= 1.5 ô)
         list<Evacuee> nearby_evacuees <- Evacuee at_distance 1.5;
         ask nearby_evacuees {
-            stamina <- max(0.0, stamina - 2.0);
+            stamina <- max(0.0, stamina - 5.0);  // Sát thương 5.0
         }
 
-        // Trừ stamina của lính cứu hộ / lính cứu hỏa ở gần ngọn lửa
-        list<RescueWorker> nearby_workers <- RescueWorker at_distance 1.5;
+        // Trừ stamina của cứu hộ (phải gộp Firefighter + Rescuer vì RescueWorker bị rỗng)
+        list<RescueWorker> nearby_workers <- (Firefighter + Rescuer) at_distance 1.5;
         ask nearby_workers {
-            stamina <- max(0.0, stamina - 1.0);
+            stamina <- max(0.0, stamina - 3.0);  // Sát thương 3.0
         }
     }
         
@@ -465,3 +464,11 @@ experiment FireEvacuation type: gui {
         }
     }
 }
+
+
+
+
+
+
+
+ 
