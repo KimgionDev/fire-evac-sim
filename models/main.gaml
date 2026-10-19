@@ -316,7 +316,8 @@ species Evacuee skills: [moving] {
 	    
 	    floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 	    Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
-	    RescueWorker nearest_worker <- empty(RescueWorker) ? nil : (RescueWorker closest_to self);
+	    list<RescueWorker> responders <- (Firefighter as list) + (Rescuer as list);
+	    RescueWorker nearest_worker <- empty(responders) ? nil : (responders closest_to self);
 	    int nearby_evacuees_count <- length(Evacuee at_distance 5.0);
 	    
 	    // 1. Điểm EVACUATE (Thoát hiểm)
@@ -335,13 +336,13 @@ species Evacuee skills: [moving] {
 	    }
 	    
 	    // 2. Điểm FLEE_FIRE (Chạy né khói lửa)
-	    if (nearest_fire != nil) {
+	    // Chỉ kích hoạt khi có lửa trong tầm nhìn (<= vision)
+	    if (nearest_fire != nil and (self distance_to nearest_fire) <= vision) {
 	        float dist_fire <- self distance_to nearest_fire;
 	        if (dist_fire <= 5.0) { u_flee <- u_flee + 50.0; }
 	        if (dist_fire <= 2.0) { u_flee <- u_flee + 50.0; } // Nguy cấp
+	        if (stamina < 40.0)   { u_flee <- u_flee + 30.0; } // Thể lực thấp khi có lửa gần
 	    }
-	    
-	    if (stamina < 40.0) { u_flee <- u_flee + 30.0; }
 	    
 	    // 3. Điểm FOLLOW_LEADER (Đi theo cứu hộ)
 	    // ĐIỀU KIỆN TIÊN QUYẾT: Chỉ kích hoạt khi có RescueWorker trong bán kính 8 ô!
@@ -361,8 +362,8 @@ species Evacuee skills: [moving] {
 	    
 	    // 4. Điểm FLOCK (Gộp nhóm đông người)
 	    if (nearby_evacuees_count >= 3) { u_flock <- u_flock + 40.0; }
+	    if (nearby_evacuees_count >= 1 and panic_level > 50.0) { u_flock <- u_flock + 20.0; }
 	    
-	    if (panic_level > 50.0)         { u_flock <- u_flock + 20.0; }
 	    // BƯỚC D: So sánh và Tie-break (FLEE > EVACUATE > FOLLOW > FLOCK)
 	    float max_score <- max([u_flee, u_evacuate, u_follow, u_flock]);
 	    
@@ -385,7 +386,7 @@ species Evacuee skills: [moving] {
     
     reflex main_decision {
 	    stamina     <- max(0.0, stamina - 0.1);
-	    panic_level <- min(100.0, panic_level + 0.5);
+	    panic_level <- min(100.0, max(0.0, panic_level + 0.5));
 	
 	    if (floor_cell(location).is_exit) {
 	        is_escaped <- true;
