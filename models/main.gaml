@@ -264,6 +264,12 @@ global {
         write "KHOI TAO: " + length(Firefighter) + " Firefighter, " + length(Rescuer) + " Rescuer, " + length(Fire) + " Fire";
         write "========================================";
     }
+
+    // ===== Cập nhật chỉ số toàn cục mỗi cycle =====
+    reflex update_metrics {
+        // Cập nhật số người đang hoảng loạn (panic_level > 70) theo INTERFACE.md
+        nb_panic <- Evacuee count (each.panic_level > 70.0);
+    }
 }
 
 // ============ GRID  ============
@@ -568,6 +574,17 @@ experiment FireEvacuation type: gui {
             species Firefighter aspect: default;
             species Rescuer aspect: default;
             species Evacuee aspect: default;
+        }
+
+        display chart_view refresh: every(1#cycle) {
+            chart "Thống kê sơ tán thời gian thực" type: series {
+                data "Thoát thành công" value: nb_escaped color: #green;
+                data "Tử vong"          value: nb_dead    color: #red;
+                data "Đang hoảng loạn"  value: nb_panic   color: #orange;
+            }
+            chart "Số đám lửa còn lại" type: series {
+                data "Đám lửa"          value: length(Fire) color: #darkred;
+            }
         }
     }
 }
