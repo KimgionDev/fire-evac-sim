@@ -444,6 +444,13 @@ species RescueWorker skills: [moving] {
 		stamina <- max(0.0, stamina - 0.05);
 	}
 
+	reflex check_death {
+		if (stamina <= 0.0) {
+			write "[HY SINH] " + name + " đã hy sinh khi đang làm nhiệm vụ tại cycle " + cycle;
+			do die;
+		}
+	}
+
 	aspect default {
 		draw circle(1.0) color: color border: #black;
 	}
@@ -590,7 +597,7 @@ species Fire {
 experiment FireEvacuation type: gui {
 	output {
 		display map {
-			grid floor_cell border: #black;
+			grid floor_cell;
 			species Fire aspect: default;
 			species Firefighter aspect: default;
 			species Rescuer aspect: default;
