@@ -449,6 +449,7 @@ species RescueWorker skills: [moving] {
 			write "[HY SINH] " + name + " đã hy sinh khi đang làm nhiệm vụ tại cycle " + cycle;
 			do die;
 		}
+
 	}
 
 	aspect default {
