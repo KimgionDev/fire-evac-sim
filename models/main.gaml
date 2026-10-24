@@ -577,12 +577,12 @@ experiment FireEvacuation type: gui {
         }
 
         display chart_view refresh: every(1#cycle) {
-            chart "Thống kê sơ tán thời gian thực" type: series {
+            chart "Thống kê sơ tán thời gian thực" type: series size: {1.0, 0.5} position: {0.0, 0.0} {
                 data "Thoát thành công" value: nb_escaped color: #green;
                 data "Tử vong"          value: nb_dead    color: #red;
                 data "Đang hoảng loạn"  value: nb_panic   color: #orange;
             }
-            chart "Số đám lửa còn lại" type: series {
+            chart "Số đám lửa còn lại" type: series size: {1.0, 0.5} position: {0.0, 0.5} {
                 data "Đám lửa"          value: length(Fire) color: #darkred;
             }
         }
