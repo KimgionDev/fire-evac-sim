@@ -41,6 +41,10 @@ global {
         }
     }
 
+    reflex update_panic_count {
+        nb_panic <- length(Evacuee where (each.panic_level > 50.0 and not each.is_escaped));
+    }
+
     // ===== TV1: Thiết lập bản đồ + exit_cells + room_graph =====
     action setup_map {
         ask floor_cell {
@@ -297,10 +301,11 @@ grid floor_cell width: grid_width height: grid_height {
 species Evacuee skills: [moving] {
     float stamina     <- 100.0;
     float panic_level <- 0.0;
-    float speed       <- rnd(1.0, 1.5);
-    float vision      <- 10.0;
+    float speed       <- rnd(0.4, 0.7);
+    float vision      <- 12.0;
     bool  is_escaped  <- false;
-    string current_action <- "IDLE";
+    bool  is_guided   <- false;
+    string current_action <- "EVACUATE";
     
     // 4 biến lưu điểm số tiện ích vừa tính được
     float u_evacuate <- 0.0;
@@ -316,59 +321,42 @@ species Evacuee skills: [moving] {
 	    
 	    floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 	    Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
-	    list<RescueWorker> responders <- (Firefighter as list) + (Rescuer as list);
-	    RescueWorker nearest_worker <- empty(responders) ? nil : (responders closest_to self);
-	    int nearby_evacuees_count <- length(Evacuee at_distance 5.0);
+	    Rescuer nearest_rescuer <- empty(Rescuer) ? nil : (Rescuer closest_to self);
 	    
-	    // 1. Điểm EVACUATE (Thoát hiểm)
-	    // Chỉ kích hoạt khi phát hiện lối thoát trong tầm nhìn (< vision)
-	    if (nearest_exit != nil and (self distance_to nearest_exit) < vision) {
-	        float dist_exit <- self distance_to nearest_exit;
-	        u_evacuate <- u_evacuate + 60.0; // Thấy lối thoát trong tầm nhìn
-	        
-	        if (dist_exit <= 2.0) {
-	            u_evacuate <- u_evacuate + 40.0; // Ở rất gần lối thoát
-	        }
-	        
-	        if (stamina < 20.0) {
-	            u_evacuate <- u_evacuate + 40.0; // Ưu tiên khẩn cấp khi kiệt sức
-	        }
+	    list<Evacuee> nearby_evacuees <- Evacuee at_distance 6.0 where (each != self and not each.is_escaped);
+	    int nearby_count <- length(nearby_evacuees);
+	    
+	    if (is_guided) {
+	        u_follow <- 100.0;
+	        current_action <- "FOLLOW_LEADER";
+	        return;
+	    }
+
+	    if (nearest_exit != nil) {
+            u_evacuate <- u_evacuate + 40.0;
+            if ((self distance_to nearest_exit) <= vision) { u_evacuate <- u_evacuate + 30.0; }
+	        if (stamina < 30.0) { u_evacuate <- u_evacuate + 20.0; }
 	    }
 	    
-	    // 2. Điểm FLEE_FIRE (Chạy né khói lửa)
-	    // Chỉ kích hoạt khi có lửa trong tầm nhìn (<= vision)
 	    if (nearest_fire != nil and (self distance_to nearest_fire) <= vision) {
 	        float dist_fire <- self distance_to nearest_fire;
-	        if (dist_fire <= 5.0) { u_flee <- u_flee + 50.0; }
-	        if (dist_fire <= 2.0) { u_flee <- u_flee + 50.0; } // Nguy cấp
-	        if (stamina < 40.0)   { u_flee <- u_flee + 30.0; } // Thể lực thấp khi có lửa gần
+	        if (dist_fire <= 4.0) { u_flee <- u_flee + 70.0; }
+	        else if (dist_fire <= 8.0) { u_flee <- u_flee + 40.0; }
 	    }
 	    
-	    // 3. Điểm FOLLOW_LEADER (Đi theo cứu hộ)
-	    // ĐIỀU KIỆN TIÊN QUYẾT: Chỉ kích hoạt khi có RescueWorker trong bán kính 8 ô!
-	    if (nearest_worker != nil and (self distance_to nearest_worker) <= 8.0) {
-	        u_follow <- u_follow + 50.0;
-	        
-	        // Nếu bản thân chưa thấy lối thoát trong tầm nhìn -> càng muốn bám theo cứu hộ (+30)
-	        if (nearest_exit = nil or (self distance_to nearest_exit) >= vision) {
-	            u_follow <- u_follow + 30.0;
-	        }
-	        
-	        // Nếu hoảng loạn mất phương hướng -> cần người dẫn đường (+30)
-	        if (panic_level > 70.0) {
-	            u_follow <- u_follow + 30.0;
-	        }
+	    if (nearest_rescuer != nil and (self distance_to nearest_rescuer) <= 3.0) {
+	        u_follow <- u_follow + 60.0;
 	    }
 	    
-	    // 4. Điểm FLOCK (Gộp nhóm đông người)
-	    if (nearby_evacuees_count >= 3) { u_flock <- u_flock + 40.0; }
-	    if (nearby_evacuees_count >= 1 and panic_level > 50.0) { u_flock <- u_flock + 20.0; }
+	    if (nearby_count >= 1) {
+	        u_flock <- u_flock + 30.0;
+	        if (nearby_count >= 3) { u_flock <- u_flock + 20.0; }
+	    }
 	    
-	    // BƯỚC D: So sánh và Tie-break (FLEE > EVACUATE > FOLLOW > FLOCK)
 	    float max_score <- max([u_flee, u_evacuate, u_follow, u_flock]);
 	    
 	    if (max_score <= 0.0) {
-	        current_action <- "IDLE";
+	        current_action <- "EVACUATE";
 	    } else if (u_flee = max_score) {
 	        current_action <- "FLEE_FIRE";
 	    } else if (u_evacuate = max_score) {
@@ -379,16 +367,81 @@ species Evacuee skills: [moving] {
 	        current_action <- "FLOCK";
 	    }
     }
-    action flee_from (Fire target) {}
-    action evacuate (floor_cell target_exit) {}
-    action follow_leader (RescueWorker leader) {}
-    action flock {}
+
+    action flee_from (Fire target) {
+        if (target != nil) {
+            list<floor_cell> neighbor_floors <- floor_cell(location).neighbors where (each.is_floor and not each.is_wall and not each.is_fire);
+            if (!empty(neighbor_floors)) {
+                floor_cell best_cell <- neighbor_floors farthest_to target;
+                if (best_cell != nil) {
+                    do goto target: best_cell.location on: room_graph;
+                } else {
+                    do wander_random;
+                }
+            } else {
+                do wander_random;
+            }
+        } else {
+            do wander_random;
+        }
+    }
+
+    action evacuate (floor_cell target_exit) {
+        if (target_exit != nil) {
+            do goto target: target_exit.location on: room_graph;
+        } else {
+            do wander_random;
+        }
+    }
+
+    action follow_leader (Rescuer leader) {
+        if (leader != nil) {
+            do goto target: leader.location on: room_graph;
+        } else {
+            floor_cell target_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+            do evacuate(target_exit);
+        }
+    }
+
+    action flock {
+        list<Evacuee> nearby <- Evacuee at_distance 6.0 where (each != self and not each.is_escaped);
+        floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+        
+        if (!empty(nearby)) {
+            point center_pos <- mean(nearby collect each.location);
+            if (nearest_exit != nil) {
+                point target_pos <- { (center_pos.x + nearest_exit.location.x) / 2.0, (center_pos.y + nearest_exit.location.y) / 2.0 };
+                do goto target: target_pos on: room_graph;
+            } else {
+                do goto target: center_pos on: room_graph;
+            }
+        } else if (nearest_exit != nil) {
+            do evacuate(nearest_exit);
+        } else {
+            do wander_random;
+        }
+    }
+
+    action wander_random {
+        list<floor_cell> neighbor_floors <- floor_cell(location).neighbors where (each.is_floor and not each.is_wall and not each.is_fire);
+        if (!empty(neighbor_floors)) {
+            floor_cell random_cell <- one_of(neighbor_floors);
+            do goto target: random_cell.location on: room_graph;
+        }
+    }
     
     reflex main_decision {
-	    stamina     <- max(0.0, stamina - 0.1);
-	    panic_level <- min(100.0, max(0.0, panic_level + 0.5));
-	
-	    if (floor_cell(location).is_exit) {
+	    stamina <- max(0.0, stamina - 0.05);
+	    
+	    Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+	    if (nearest_fire != nil and (self distance_to nearest_fire) <= 5.0 and not is_guided) {
+	        panic_level <- min(100.0, panic_level + 2.0);
+	    }
+
+        floor_cell current_cell <- floor_cell(location);
+        floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+        
+	    if (current_cell.is_exit or (nearest_exit != nil and (self distance_to nearest_exit) <= 1.0)) {
 	        is_escaped <- true;
 	        nb_escaped <- nb_escaped + 1;
 	        write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
@@ -402,33 +455,44 @@ species Evacuee skills: [moving] {
 	    }
 	    
 	    do compute_utility;
-	    }
+
+        if (current_action = "FLEE_FIRE") {
+            do flee_from(nearest_fire);
+        } else if (current_action = "EVACUATE") {
+            do evacuate(nearest_exit);
+        } else if (current_action = "FOLLOW_LEADER") {
+            Rescuer leader <- empty(Rescuer) ? nil : (Rescuer closest_to self);
+            do follow_leader(leader);
+        } else if (current_action = "FLOCK") {
+            do flock;
+        } else {
+            do wander_random;
+        }
+    }
 	    
-	
-	    aspect default {
-	        rgb my_color <- #blue;
-	        if (current_action = "FLEE_FIRE") {
-	            my_color <- #red;
-	        } else if (current_action = "EVACUATE") {
-	            my_color <- #green;
-	        } else if (current_action = "FOLLOW_LEADER") {
-	            my_color <- #yellow;
-	        } else if (current_action = "FLOCK") {
-	            my_color <- rgb(155, 89, 182); // Màu tím
-	        }
-	       
-	        draw circle(0.6) color: my_color border: #black;
-	        
-	        if (current_action != "IDLE") {
-	            draw current_action size: 1.2 color: #black at: location + {0, -1};
-	        }
-	    }
+    aspect default {
+        rgb my_color <- #blue;
+        
+        if (panic_level > 50.0 and not is_guided) {
+            my_color <- #red;
+        } else if (is_guided or (panic_level <= 20.0 and current_action = "EVACUATE")) {
+            my_color <- #green;
+        } else if (current_action = "FLOCK") {
+            my_color <- rgb(155, 89, 182);
+        }
+       
+        draw circle(0.6) color: my_color border: #black;
+        
+        if (current_action != "IDLE") {
+            draw current_action size: 1.2 color: #black at: location + {0, -1};
+        }
+    }
 }
 
 // ============ RESCUEWORKER ============
 species RescueWorker skills: [moving] {
-    float stamina <- 200.0;
-    float speed   <- 1.2;
+    float stamina <- 300.0;
+    float speed   <- 0.8;
     float vision  <- 15.0;
     rgb color     <- #blue;
 
@@ -446,7 +510,9 @@ species Firefighter parent: RescueWorker {
     float water_supply <- 100.0;
 
     init {
-        color <- #yellow;
+        stamina <- 250.0;
+        speed   <- 1.0;
+        color   <- #yellow;
     }
 
     action compute_utility {}
@@ -471,42 +537,86 @@ species Firefighter parent: RescueWorker {
         }
     }
 
+    reflex check_death {
+        if (stamina <= 0.0) {
+            write "[TỬ VONG] Lính dập lửa " + name + " đã hy sinh trong hỏa hoạn tại cycle " + cycle;
+            do die;
+        }
+    }
+
     // Logic quyết định di chuyển & dập lửa
     reflex main_decision {
-        Fire target_fire <- Fire closest_to self;
+        Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
         if (target_fire != nil) {
-            if (self distance_to target_fire <= 1.5) {
+            if (self distance_to target_fire <= 1.8) {
                 do extinguish(target_fire);
             } else {
                 do goto target: target_fire.location on: room_graph;
+            }
+        } else {
+            floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+            if (safe_exit != nil) {
+                do goto target: safe_exit.location on: room_graph;
             }
         }
     }
 
     aspect default {
         draw rectangle(1.2, 1.2) color: color border: #black;
+        draw "Firefighter" size: 1.0 color: #black at: location + {0, -1};
     }
 }
 
 // ============ RESCUER ============
 species Rescuer parent: RescueWorker {
-    float calm_radius <- 4.0;
+    float calm_radius <- 2.0;
 
     init {
         color <- #cyan;
     }
 
     action compute_utility {}
-    action guide (Evacuee target) {}
+
+    reflex check_death {
+        if (stamina <= 0.0) {
+            write "[TỬ VONG] Lực lượng cứu hộ " + name + " đã hy sinh tại cycle " + cycle;
+            do die;
+        }
+    }
 
     reflex main_decision {
-        // TV3 viết logic tuần tra/dẫn đường tại đây
+        list<Evacuee> nearby_touching <- Evacuee at_distance calm_radius where (not each.is_escaped);
+        ask nearby_touching {
+            self.panic_level <- 0.0;
+            self.is_guided   <- true;
+        }
+
+        list<Evacuee> my_guided_followers <- Evacuee at_distance 8.0 where (not each.is_escaped and each.is_guided);
+
+        if (!empty(my_guided_followers)) {
+            floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+            if (safe_exit != nil) {
+                do goto target: safe_exit.location on: room_graph;
+            }
+        } else {
+            list<Evacuee> unguided_evacuees <- Evacuee where (not each.is_escaped and not each.is_guided);
+            if (!empty(unguided_evacuees)) {
+                Evacuee target <- unguided_evacuees closest_to self;
+                if (target != nil) {
+                    do goto target: target.location on: room_graph;
+                }
+            } else {
+                floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+                if (safe_exit != nil) {
+                    do goto target: safe_exit.location on: room_graph;
+                }
+            }
+        }
     }
-    
-    // Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 
     aspect default {
         draw triangle(1.3) color: color border: #black;
+        draw "Rescuer" size: 1.0 color: #black at: location + {0, -1};
     }
 }
 
@@ -569,13 +679,13 @@ experiment FireEvacuation type: gui {
             species Rescuer aspect: default;
             species Evacuee aspect: default;
         }
+
+        display chart_display refresh: every(1#cycle) {
+            chart "Thống kê tình trạng sơ tán (Tuần 3)" type: series {
+                data "Số người thoát hiểm" value: nb_escaped color: #green;
+                data "Số người tử vong" value: nb_dead color: #red;
+                data "Số người hoảng loạn" value: nb_panic color: #orange;
+            }
+        }
     }
 }
-
-
-
-
-
-
-
- 
