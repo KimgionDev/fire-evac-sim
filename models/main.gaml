@@ -386,9 +386,28 @@ species Evacuee skills: [moving] {
 		} }
 
 	action flee_from (Fire target) {
+		if (target != nil) {
+			// Tính điểm đối xứng ngược hướng với ngọn lửa
+			point flee_point <- self.location + (self.location - target.location);
+			if ((self.location distance_to target.location) = 0.0) {
+				floor_cell current_cell <- floor_cell(location);
+				if (current_cell != nil) {
+					list<floor_cell> escape_cells <- current_cell.neighbors where (each.is_floor and not each.is_wall and not each.is_fire and (each.location distance_to target.location) > 0.0);
+					if (!empty(escape_cells)) {
+						flee_point <- one_of(escape_cells).location;
+					}
+				}
+			}
+			
+			// Tháo chạy ngược hướng ngọn lửa nhưng vẫn né tường
+			do goto target: flee_point on: room_graph;
 	}
-
+}
 	action evacuate (floor_cell target_exit) {
+		if(target_exit != nil){
+			// Di chuyển theo đồ thị né tường về phía cửa thoát hiểm
+			do goto target: target_exit on: room_graph;
+		}
 	}
 
 	action follow_leader (RescueWorker leader) {
@@ -398,15 +417,12 @@ species Evacuee skills: [moving] {
 	}
 
 	reflex main_decision {
+		//giam the luc va tang nhe panic theo thoi gian
 		stamina <- max(0.0, stamina - 0.1);
 		panic_level <- min(100.0, max(0.0, panic_level + 0.5));
-		if (floor_cell(location).is_exit) {
-			is_escaped <- true;
-			nb_escaped <- nb_escaped + 1;
-			write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
-			do die;
-		}
-
+		
+		
+		//Kiem tra tu vong do kiet suc
 		if (stamina <= 0.0 and not is_escaped) {
 			nb_dead <- nb_dead + 1;
 			write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
@@ -414,6 +430,28 @@ species Evacuee skills: [moving] {
 		}
 
 		do compute_utility;
+		
+		//thuc hien hanh dong di chuyen
+		if (current_action = "FLEE_FIRE") {
+			Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+			if (nearest_fire != nil) {
+				do flee_from(nearest_fire);
+			}
+		} else if (current_action = "EVACUATE") {
+			floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+			if (nearest_exit != nil) {
+				do evacuate(nearest_exit);
+			}
+		}
+		
+		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
+		floor_cell my_cell <- floor_cell(location);
+		if (my_cell != nil and my_cell.is_exit) {
+			is_escaped <- true;
+			nb_escaped <- nb_escaped + 1;
+			write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
+			do die;
+		}
 	}
 
 	aspect default {
@@ -662,4 +700,4 @@ experiment FireEvacuation type: gui {
 	}
 
 }
- 
+
