@@ -517,19 +517,59 @@ species Firefighter parent: RescueWorker {
 // ============ RESCUER ============
 species Rescuer parent: RescueWorker {
 	float calm_radius <- 4.0;
-
+	string current_action <- "IDLE";
 	init {
 		color <- #cyan;
 	}
 
 	action compute_utility {
+		list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
+			if (!empty(target_evacuees)) {
+				current_action <- "GUIDE";
+			} else {
+				current_action <- "WANDER";
+		}
 	}
 
 	action guide (Evacuee target) {
+		if (target != nil) {
+			// 1. Kiểm tra xem đã có Evacuee nào ở sát bên trong bán kính calm_radius chưa
+			list<Evacuee> nearby_evacuees <- Evacuee at_distance calm_radius where (not each.is_escaped);
+
+			if (!empty(nearby_evacuees)) {
+				// Trấn an những người đang ở gần (panic_level - 10.0, kẹp không âm theo Mục 8.5 & Ảnh 1, 2)
+				ask nearby_evacuees {
+					self.panic_level <- max(0.0, self.panic_level - 10.0);
+				}
+				// Khi đã có người đi cùng -> dẫn họ di chuyển về phía lối thoát hiểm gần nhất
+				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+				if (safe_exit != nil) {
+					do goto target: safe_exit.location on: room_graph;
+				}
+			} else {
+				// Nếu chưa có Evacuee ở sát bên -> tiếp tục đi sâu vào trong để tìm và tiếp cận Evacuee
+				do goto target: target.location on: room_graph;
+			}
+		}
 	}
 
 	reflex main_decision {
-	// TV3 viết logic tuần tra/dẫn đường tại đây
+		do compute_utility;
+
+		if (current_action = "GUIDE") {
+			list<Evacuee> unguided_evacuees <- Evacuee where (not each.is_escaped);
+			if (!empty(unguided_evacuees)) {
+				// Chọn người dân chưa thoát gần nhất để đi tìm
+				Evacuee target <- unguided_evacuees closest_to self;
+				do guide(target);
+			}
+		} else {
+			// Khi không còn ai cần cứu -> đi ra cửa thoát hiểm
+			floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+			if (safe_exit != nil) {
+				do goto target: safe_exit.location on: room_graph;
+			}
+		}
 	}
 
 	// Khi di chuyển, dùng: do goto target: xxx on: room_graph;
