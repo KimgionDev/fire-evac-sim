@@ -389,6 +389,15 @@ species Evacuee skills: [moving] {
 		if (target != nil) {
 			// Tính điểm đối xứng ngược hướng với ngọn lửa
 			point flee_point <- self.location + (self.location - target.location);
+			if ((self.location distance_to target.location) = 0.0) {
+				floor_cell current_cell <- floor_cell(location);
+				if (current_cell != nil) {
+					list<floor_cell> escape_cells <- current_cell.neighbors where (each.is_floor and not each.is_wall and not each.is_fire and (each.location distance_to target.location) > 0.0);
+					if (!empty(escape_cells)) {
+						flee_point <- one_of(escape_cells).location;
+					}
+				}
+			}
 			
 			// Tháo chạy ngược hướng ngọn lửa nhưng vẫn né tường
 			do goto target: flee_point on: room_graph;
