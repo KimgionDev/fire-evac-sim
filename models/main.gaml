@@ -261,9 +261,43 @@ else if (gx >= 26 and gx <= 45) {
 	reflex update_metrics {
 	// Cập nhật số người đang hoảng loạn (panic_level > 70) theo INTERFACE.md
 		nb_panic <- Evacuee count (each.panic_level > 70.0);
-	} }
+	}
 
-	// ============ GRID  ============
+	// ===== TV1: Cập nhật lan tỏa và tiêu tán khói (Smoke Simulation) =====
+	reflex update_smoke when: (every(2 #cycle)) {
+		// Khói phát tán từ các ổ lửa đang hoạt động
+		ask Fire where (each.is_active) {
+			floor_cell fc <- floor_cell(location);
+			if (fc != nil) {
+				fc.smoke_density <- 1.0;
+				fc.is_fire_hazard <- true;
+				// Lan tỏa sang các ô sàn lân cận đi được
+				list<floor_cell> safe_neighbors <- fc.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
+				ask safe_neighbors {
+					if (not self.is_fire) {
+						self.smoke_density <- min(0.85, self.smoke_density + 0.35);
+						if (self.smoke_density > 0.25) {
+							self.is_fire_hazard <- true;
+						}
+						do update_color;
+					}
+				}
+				do fc.update_color;
+			}
+		}
+
+		// Khói tiêu tán dần ở những ô không có lửa
+		ask floor_cell where (each.smoke_density > 0.0 and not each.is_fire) {
+			self.smoke_density <- max(0.0, self.smoke_density - 0.05);
+			if (self.smoke_density <= 0.25) {
+				self.is_fire_hazard <- false;
+			}
+			do update_color;
+		}
+	}
+}
+
+// ============ GRID  ============
 grid floor_cell width: grid_width height: grid_height {
 	bool is_wall <- false;
 	bool is_floor <- true;
@@ -273,19 +307,24 @@ grid floor_cell width: grid_width height: grid_height {
 	bool is_room <- false;
 	bool is_kitchen <- false;
 	bool is_outside <- false;
+	float smoke_density <- 0.0; // TV1: Mật độ khói (0.0 .. 1.0)
 	rgb base_color <- #white;
 	rgb color <- #white;
 
 	action update_color {
 		if (is_fire) {
 			color <- rgb(231, 76, 60);
-		} else if (is_fire_hazard) {
-			color <- rgb(243, 156, 18);
+		} else if (smoke_density > 0.05) {
+			// TV1: Hiệu ứng khói xám tro mờ ảo lan tỏa, sắc độ xám tùy theo mật độ khói
+			int gray <- int(235 - smoke_density * 135);
+			color <- rgb(gray, gray, gray);
 		} else if (is_exit) {
 			color <- rgb(46, 204, 113);
 		} else {
 			color <- base_color;
-		} } }
+		}
+	}
+}
 
 		// ============ EVACUEE ============
 // Do thành viên TV2 phụ trách cài đặt hành vi
@@ -466,10 +505,28 @@ species Evacuee skills: [moving] {
 			my_color <- rgb(155, 89, 182); // Màu tím
 		}
 
-		draw circle(0.6) color: my_color border: #black;
+		// TV1 - 1. Vòng hào quang thể hiện mức độ hoảng loạn (panic_level)
+		rgb panic_color <- rgb(52, 152, 219, 100); // Xanh dịu (< 40)
+		if (panic_level > 70.0) {
+			panic_color <- rgb(231, 76, 60, 180); // Đỏ báo động (> 70)
+		} else if (panic_level > 40.0) {
+			panic_color <- rgb(243, 156, 18, 140); // Cam căng thẳng (40..70)
+		}
+		draw circle(0.85) color: panic_color border: nil;
+
+		// TV1 - 2. Thân tác tử mang màu theo action chuẩn Mục 3.3 INTERFACE.md
+		draw circle(0.55) color: my_color border: #black;
+
+		// TV1 - 3. Mũi tên chỉ hướng di chuyển (heading)
+		point dir_target <- location + {cos(heading) * 1.1, sin(heading) * 1.1};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
+		// TV1 - 4. Nhãn trạng thái hành động trên đầu chuẩn Mục 3.3 INTERFACE.md
 		if (current_action != "IDLE") {
-			draw current_action size: 1.2 color: #black at: location + {0, -1};
-		} } }
+			draw current_action size: 0.9 color: #black at: location + {0, -0.9};
+		}
+	}
+}
 
 		// ============ RESCUEWORKER ============
 species RescueWorker skills: [moving] {
@@ -500,6 +557,7 @@ species RescueWorker skills: [moving] {
 // ============ FIREFIGHTER ============
 species Firefighter parent: RescueWorker {
 	float water_supply <- 100.0;
+	string current_action <- "WANDER";
 
 	init {
 		color <- #yellow;
@@ -537,17 +595,35 @@ species Firefighter parent: RescueWorker {
 		Fire target_fire <- Fire closest_to self;
 		if (target_fire != nil) {
 			if (self distance_to target_fire <= 1.5) {
+				current_action <- "EXTINGUISH";
 				do extinguish(target_fire);
 			} else {
+				current_action <- "MOVE_TO_FIRE";
 				do goto target: target_fire.location on: room_graph;
 			}
-
+		} else {
+			current_action <- "WANDER";
 		}
-
 	}
 
 	aspect default {
+		// TV1 - 1. Thân hình chữ nhật vàng chuẩn Mục 3.3
 		draw rectangle(1.2, 1.2) color: color border: #black;
+
+		// TV1 - 2. Mũi tên chỉ hướng di chuyển (heading)
+		point dir_target <- location + {cos(heading) * 1.3, sin(heading) * 1.3};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
+		// TV1 - 3. Tia nước dập lửa khi đang ở cự ly chữa cháy
+		Fire nearby_fire <- empty(Fire) ? nil : (Fire closest_to self);
+		if (nearby_fire != nil and (self distance_to nearby_fire) <= 1.5 and water_supply > 0) {
+			draw line([location, nearby_fire.location]) color: #deepskyblue width: 2.0;
+		}
+
+		// TV1 - 4. Nhãn hành động hiện tại trên đầu chuẩn Mục 3.3
+		if (current_action != "IDLE") {
+			draw current_action size: 0.9 color: #black at: location + {0, -1.0};
+		}
 	}
 
 }
@@ -612,7 +688,20 @@ species Rescuer parent: RescueWorker {
 
 	// Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 	aspect default {
+		// TV1 - 1. Vòng tròn bán kính trấn an mờ (calm_radius = 4.0 ô)
+		draw circle(calm_radius) color: rgb(52, 152, 219, 25) border: #cyan;
+
+		// TV1 - 2. Thân tam giác cyan chuẩn Mục 3.3
 		draw triangle(1.3) color: color border: #black;
+
+		// TV1 - 3. Mũi tên chỉ hướng di chuyển (heading)
+		point dir_target <- location + {cos(heading) * 1.3, sin(heading) * 1.3};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
+		// TV1 - 4. Nhãn hành động hiện tại trên đầu chuẩn Mục 3.3
+		if (current_action != "IDLE") {
+			draw current_action size: 0.9 color: #black at: location + {0, -1.0};
+		}
 	}
 
 }
@@ -632,12 +721,12 @@ species Fire {
 				list<floor_cell> neighbor_cells <- current_cell.neighbors where (not each.is_wall and not each.is_fire and not each.is_outside);
 				if (!empty(neighbor_cells)) {
 					floor_cell target_cell <- one_of(neighbor_cells);
+					target_cell.is_fire <- true;
+					target_cell.is_fire_hazard <- true;
 					create Fire {
 						location <- target_cell.location;
 						intensity <- 50.0; // Lửa mới tạo có intensity = 50
 						ask target_cell {
-							is_fire <- true;
-							is_fire_hazard <- true;
 							do update_color;
 						}
 
@@ -668,7 +757,12 @@ species Fire {
 	}
 
 	aspect default {
-		draw circle(0.8) color: color;
+		// TV1: Hiệu ứng ngọn lửa bập bùng 3 tầng sinh động co giãn theo intensity và chu kỳ
+		float pulse <- sin(cycle * 30 + int(self) * 15);
+		float flame_size <- (0.65 + 0.15 * pulse) * (intensity / 100.0);
+		draw circle(flame_size * 1.35) color: rgb(231, 76, 60, 90);   // Quầng sáng đỏ tỏa nhiệt
+		draw circle(flame_size) color: rgb(230, 81, 0);               // Thân ngọn lửa cam rực rỡ
+		draw circle(flame_size * 0.45) color: rgb(255, 235, 59);      // Lõi nhiệt vàng sáng
 	}
 
 }
