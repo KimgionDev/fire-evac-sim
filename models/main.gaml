@@ -500,12 +500,47 @@ species RescueWorker skills: [moving] {
 // ============ FIREFIGHTER ============
 species Firefighter parent: RescueWorker {
 	float water_supply <- 100.0;
+	string current_action <- "WANDER";
 
 	init {
 		color <- #yellow;
 	}
+	
+	float u_extinguish <- 0.0;
+	float u_move_fire <- 0.0;
+	float u_wander <- 0.0;
 
 	action compute_utility {
+		u_extinguish <- 0.0;
+		u_move_fire <- 0.0;
+		u_wander <- 0.0;
+
+		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+
+		// Cân bằng thông số khi hết nước: không EXTINGUISH, chuyển sang WANDER / rút lui
+		if (water_supply <= 0.0) {
+			u_wander <- 10.0;
+		} else if (nearest_fire != nil) {
+			float dist <- self distance_to nearest_fire;
+			if (dist <= 1.5) {
+				u_extinguish <- 100.0;
+				u_move_fire <- 80.0;
+			} else {
+				u_move_fire <- 80.0;
+			}
+		} else {
+			u_wander <- 10.0;
+		}
+
+		// Tie-break theo INTERFACE.md: EXTINGUISH > MOVE_TO_FIRE > WANDER
+		float max_score <- max([u_extinguish, u_move_fire, u_wander]);
+		if (max_score <= 0.0 or max_score = u_wander) {
+			current_action <- "WANDER";
+		} else if (u_extinguish = max_score) {
+			current_action <- "EXTINGUISH";
+		} else {
+			current_action <- "MOVE_TO_FIRE";
+		}
 	}
 
 	// Action dập lửa
@@ -534,14 +569,23 @@ species Firefighter parent: RescueWorker {
 
 	// Logic quyết định di chuyển & dập lửa
 	reflex main_decision {
-		Fire target_fire <- Fire closest_to self;
-		if (target_fire != nil) {
-			if (self distance_to target_fire <= 1.5) {
+		do compute_utility;
+
+		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
+
+		if (current_action = "EXTINGUISH") {
+			if (target_fire != nil and (self distance_to target_fire <= 1.5)) {
 				do extinguish(target_fire);
-			} else {
+			}
+		} else if (current_action = "MOVE_TO_FIRE") {
+			if (target_fire != nil) {
 				do goto target: target_fire.location on: room_graph;
 			}
-
+		} else if (current_action = "WANDER") {
+			floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+			if (safe_exit != nil) {
+				do goto target: safe_exit.location on: room_graph;
+			}
 		}
 
 	}
@@ -625,7 +669,7 @@ species Fire {
 
 	// 1. Lan truyền lửa ngẫu nhiên
 	reflex spread {
-		if (is_active and flip(0.05)) { // 5% mỗi cycle
+		if (is_active and flip(0.022)) { // 5% mỗi cycle --> 2.2%
 			floor_cell current_cell <- floor_cell(location);
 			if (current_cell != nil) {
 			// Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
