@@ -107,8 +107,8 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 |  | Lửa cường độ cao (\> 50\) | fire.intensity \> 50 | 30 |
 |  | Lửa đang chặn lối thoát | fire blocks exit \== true | 40 |
 | **TỔNG TỐI ĐA** |  |  | **140** |
-| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tầm nhìn nhưng chưa đến gần | closest\_to(fire) \<= vision and dist(fire) \> 1.5 | 50 |
-|  | Lửa cường độ cao | fire.intensity \> 50 | 20 |
+| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tầm nhìn nhưng chưa đến gần (còn nước) | water\_supply \> 0 and closest\_to(fire) \<= vision and dist(fire) \> 1.5 | 50 |
+|  | Lửa cường độ cao (còn nước) | water\_supply \> 0 and fire.intensity \> 50 | 20 |
 | **TỔNG TỐI ĐA** |  |  | **70** |
 | **WANDER** (Tuần tra / Rút lui) | Không có lửa trong tầm nhìn HOẶC hết nước | closest\_to(fire) \== nil or water\_supply \<= 0 | 30 |
 | **TỔNG TỐI ĐA** |  |  | **30** |
@@ -164,11 +164,7 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 | **Tuần 1** | Học GAMA & Dựng Map thô | • Học cú pháp GAML cơ bản. • Tạo main.gaml và grid cell (is\_wall, is\_floor, is\_exit). • Vẽ layout văn phòng: 4 phòng họp, khu làm việc, bếp, kho, 2 cửa thoát. | • Khai báo species Evacuee. • Tạo thuộc tính: stamina, panic\_level, speed, vision, is\_escaped. • Spawn Evacuee **trong các phòng**. | • Khai báo species cha RescueWorker. • Khai báo Firefighter parent: RescueWorker, Rescuer parent: RescueWorker. • Khai báo species Fire, spawn tại bếp. • Spawn Firefighter/Rescuer **ngoài tòa nhà**. |
 | **Tuần 2** | Chuyển động & Lan truyền | • Rải vị trí lối thoát hiểm. • Xử lý né tường cho các tác tử. • Vẽ màu grid theo trạng thái (sàn, tường, lửa). | • Cài đặt logic tính utility cho Evacuee. • Test giảm stamina theo thời gian. • Test logic chết khi stamina \<= 0\. | • Cài đặt lan truyền lửa ngẫu nhiên. • Cài đặt Firefighter MOVE\_TO\_FIRE \+ EXTINGUISH. • Cài đặt Fire gây sát thương. |
 | **Tuần 3** | Tương tác Lõi P1 | • Vẽ Chart theo dõi số người thoát, số thương vong, số người hoảng loạn. | • Cài đặt logic FLEE\_FIRE (né lửa) và EVACUATE (tìm cửa thoát). • Cài đặt logic thoát thành công khi chạm exit. • Áp dụng hình phạt và ưu tiên. | • Cài đặt Rescuer GUIDE (dẫn Evacuee về exit). • Cài đặt logic trấn an panic\_level. |
-| **Tuần 4** | Tương tác Lõi P2 | • Tối ưu hiển thị, màu sắc theo mức hoảng loạn. • Hiển thị đường đi hoặc hướng di chuyển. | • Cài đặt logic FOLLOW\_LEADER (bám theo cứu hộ, khi sát bên thì cùng hướng về exit). 
-• Cài đặt logic FLOCK (gộp nhóm dồn về hành lang, giảm tốc độ khi chen lấn đông người). 
-• Cân bằng chỉ số spawn trong phòng (phân bổ số lượng theo diện tích phòng và gán panic\_level ban đầu theo khoảng cách tới bếp). | • Cân bằng số lượng Firefighter (2) và Rescuer (1). 
-• Cài đặt logic Firefighter hết nước: rút lui ra ngoài sân `is_outside` (không đứng chắn `is_exit`), cơ chế nạp lại nước đầy 100.0 sau 20 cycle ngoài sân và tạm dừng trừ stamina.
-• Cân bằng tốc độ lan lửa (điều chỉnh xác suất lan khoảng 2.2% / cycle). |
+| **Tuần 4** | Tương tác Lõi P2 | • Tối ưu hiển thị, màu sắc theo mức hoảng loạn.<br>• Hiển thị đường đi hoặc hướng di chuyển. | • Cài đặt logic FOLLOW\_LEADER (bám theo cứu hộ, khi sát bên thì cùng hướng về exit).<br>• Cài đặt logic FLOCK (gộp nhóm dồn về hành lang, giảm tốc độ khi chen lấn đông người).<br>• Cân bằng chỉ số spawn trong phòng (phân bổ số lượng theo diện tích phòng và gán panic\_level ban đầu theo khoảng cách tới bếp). | • Cân bằng số lượng Firefighter (2) và Rescuer (1).<br>• Cài đặt logic Firefighter hết nước: rút lui ra ngoài sân `is_outside` (không đứng chắn `is_exit`), cơ chế nạp lại nước đầy 100.0 sau 20 cycle ngoài sân và tạm dừng trừ stamina.<br>• Cân bằng tốc độ lan lửa (điều chỉnh xác suất lan khoảng 2.2% / cycle). |
 | **Tuần 5** | Hoàn thiện & Slide | • Kiểm thử 50–100 tác tử. • Chụp ảnh mô phỏng & biểu đồ. • Ghép Slide tổng hợp phần môi trường. | • Lập bảng Utility hoàn chỉnh cho Evacuee. • Tinh chỉnh điểm phạt và ưu tiên. • Ghép Slide phần Evacuee. | • Lập bảng Utility hoàn chỉnh cho Firefighter & Rescuer. • Cân bằng chỉ số sinh tồn. • Tổng duyệt code & Slide phần cứu hộ \+ lửa. |
 
 ## **CHƯƠNG 4: HƯỚNG DẪN KHUNG CODE CẤU TRÚC GAML MẪU**
@@ -340,8 +336,8 @@ species Firefighter parent: RescueWorker {
                 if (nearest\_fire.intensity \> 50\) { u\_extinguish \<- u\_extinguish \+ 30.0; }  
             }  
               
-            // MOVE\_TO\_FIRE: khi ở xa  
-            if (d \> 1.5 and d \< vision) {  
+            // MOVE\_TO\_FIRE: khi ở xa và còn nước
+            if (d \> 1.5 and d \< vision and water\_supply \> 0\) {  
                 u\_move \<- u\_move \+ 50.0;  
                 if (nearest\_fire.intensity \> 50\) { u\_move \<- u\_move \+ 20.0; }  
             }  
@@ -358,7 +354,8 @@ species Firefighter parent: RescueWorker {
             if (\!empty(safe_neighbors)) {
                 do goto target: one\_of(safe_neighbors).location on: room\_graph;
             } else {
-                do goto target: nearest\_fire.location on: room\_graph;
+                // Không có ô an toàn kề bên thì tạm dừng tiếp cận, tránh dẫm vào tâm ô lửa
+                do wander;
             }
         } else {  
             // Khi hết nước: rút lui ra ngoài sân (is_outside), không chặn cửa thoát hiểm
