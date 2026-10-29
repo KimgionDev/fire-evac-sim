@@ -93,21 +93,31 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 |  | Hoảng loạn cao (\> 50\) | panic\_level \> 50 | 20 |
 | **TỔNG TỐI ĐA** |  |  | **60** |
 
+* **Quy tắc di chuyển & an toàn:**
+  - **FOLLOW_LEADER:** Bám theo `RescueWorker` gần nhất. Khi cách xa Leader ($> 2.0$ ô), bám theo Leader; khi đã đến sát bên ($\le 2.0$ ô), cùng di chuyển hướng về cửa thoát hiểm an toàn trên `room_graph`. (Lưu ý: FLEE_FIRE có điểm tối đa 130 cao hơn FOLLOW_LEADER 110, nên khi gần lửa dân sẽ tự né ra, không đâm vào lửa).
+  - **FLOCK (Dòng người & Nghẽn bottleneck):** Tụ lại theo trọng tâm nhóm và dồn về phía hành lang hướng ra cửa thoát. Khi chen lấn đông đúc trong bán kính hẹp ($< 1.0$ ô), tốc độ di chuyển bị suy giảm tỷ lệ nghịch với số người xung quanh (`speed * max(0.5, 1.0 - crowd_count * 0.1)`).
+
 ### **2.2 Ma trận Utility cho Tác tử Firefighter**
 
 **Lưu ý:** Firefighter chỉ dập lửa, không dẫn đường. Có MOVE\_TO\_FIRE để di chuyển đến lửa khi ở xa.
 
 | Hành động | Yếu tố đánh giá | Điều kiện kích hoạt (GAML) | Điểm |
 | :---- | :---- | :---- | :---- |
-| **EXTINGUISH** (Dập lửa) | Ô lửa nằm ngay cạnh (≤ 1.5) | dist(fire) \<= 1.5 | 70 |
+| **EXTINGUISH** (Dập lửa) | Ô lửa nằm ngay cạnh (≤ 1.5, không bị tường cản) | dist(fire) \<= 1.5 and not_blocked_by_wall | 70 |
 |  | Lửa cường độ cao (\> 50\) | fire.intensity \> 50 | 30 |
 |  | Lửa đang chặn lối thoát | fire blocks exit \== true | 40 |
 | **TỔNG TỐI ĐA** |  |  | **140** |
-| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tầm nhìn nhưng chưa đến gần | closest\_to(fire) \< vision and dist(fire) \> 1.5 | 50 |
+| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tầm nhìn nhưng chưa đến gần | closest\_to(fire) \<= vision and dist(fire) \> 1.5 | 50 |
 |  | Lửa cường độ cao | fire.intensity \> 50 | 20 |
 | **TỔNG TỐI ĐA** |  |  | **70** |
-| **WANDER** (Tuần tra) | Không có lửa trong tầm nhìn | closest\_to(fire) \== nil | 30 |
+| **WANDER** (Tuần tra / Rút lui) | Không có lửa trong tầm nhìn HOẶC hết nước | closest\_to(fire) \== nil or water\_supply \<= 0 | 30 |
 | **TỔNG TỐI ĐA** |  |  | **30** |
+
+* **Quy tắc di chuyển & an toàn:**
+  - **EXTINGUISH:** Khoảng cách $\le 1.5$ ô và phải cùng phòng / nối trực tiếp trên `room_graph` (không dập lửa xuyên tường).
+  - **MOVE_TO_FIRE:** Di chuyển tới ô an toàn kề cạnh ngọn lửa (`neighbor where (not each.is_fire and not each.is_wall)`), không dẫm vào ô lửa.
+  - **WANDER khi hết nước:** Rút lui ra ngoài sân (`is_outside`), tuyệt đối không đứng dừng lại ở ô cửa thoát hiểm (`is_exit`) cản trở người dân.
+  - **Cơ chế tiếp nước ngoài sân (Refill):** Khi đã ra đến ngoài sân (`is_outside`), tạm dừng trừ `stamina`; sau khi ở ngoài sân đủ **20 cycle** tiếp nước từ xe cứu hỏa ngoài tòa nhà, `water_supply` được hồi phục đầy 100.0 để tiếp tục quay lại dập lửa.
 
 ### **2.3 Ma trận Utility cho Tác tử Rescuer**
 
@@ -144,6 +154,7 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 
 * **Evacuee:** 🥇 FLEE\_FIRE \> 🥈 EVACUATE \> 🥉 FOLLOW\_LEADER \> 🏅 FLOCK  
 * **Firefighter:** 🥇 EXTINGUISH \> 🥈 MOVE\_TO\_FIRE \> 🎗️ WANDER  
+  *(Lưu ý: EXTINGUISH ưu tiên cao nhất, WANDER ưu tiên thấp nhất. Khi code không được để `max_score = u_wander` lên trước).*
 * **Rescuer:** 🥇 GUIDE \> 🎗️ WANDER
 
 ## **CHƯƠNG 3: KẾ HOẠCH & PHÂN CÔNG CÔNG VIỆC 5 TUẦN**
@@ -153,7 +164,11 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 | **Tuần 1** | Học GAMA & Dựng Map thô | • Học cú pháp GAML cơ bản. • Tạo main.gaml và grid cell (is\_wall, is\_floor, is\_exit). • Vẽ layout văn phòng: 4 phòng họp, khu làm việc, bếp, kho, 2 cửa thoát. | • Khai báo species Evacuee. • Tạo thuộc tính: stamina, panic\_level, speed, vision, is\_escaped. • Spawn Evacuee **trong các phòng**. | • Khai báo species cha RescueWorker. • Khai báo Firefighter parent: RescueWorker, Rescuer parent: RescueWorker. • Khai báo species Fire, spawn tại bếp. • Spawn Firefighter/Rescuer **ngoài tòa nhà**. |
 | **Tuần 2** | Chuyển động & Lan truyền | • Rải vị trí lối thoát hiểm. • Xử lý né tường cho các tác tử. • Vẽ màu grid theo trạng thái (sàn, tường, lửa). | • Cài đặt logic tính utility cho Evacuee. • Test giảm stamina theo thời gian. • Test logic chết khi stamina \<= 0\. | • Cài đặt lan truyền lửa ngẫu nhiên. • Cài đặt Firefighter MOVE\_TO\_FIRE \+ EXTINGUISH. • Cài đặt Fire gây sát thương. |
 | **Tuần 3** | Tương tác Lõi P1 | • Vẽ Chart theo dõi số người thoát, số thương vong, số người hoảng loạn. | • Cài đặt logic FLEE\_FIRE (né lửa) và EVACUATE (tìm cửa thoát). • Cài đặt logic thoát thành công khi chạm exit. • Áp dụng hình phạt và ưu tiên. | • Cài đặt Rescuer GUIDE (dẫn Evacuee về exit). • Cài đặt logic trấn an panic\_level. |
-| **Tuần 4** | Tương tác Lõi P2 | • Tối ưu hiển thị, màu sắc theo mức hoảng loạn. • Hiển thị đường đi hoặc hướng di chuyển. | • Cài đặt logic FOLLOW\_LEADER (đi theo cứu hộ) và FLOCK (gộp nhóm). • Cân bằng chỉ số spawn trong phòng. | • Cân bằng số lượng Firefighter (2) và Rescuer (1). • Cài đặt logic Firefighter hết nước. • Cân bằng tốc độ lan lửa. |
+| **Tuần 4** | Tương tác Lõi P2 | • Tối ưu hiển thị, màu sắc theo mức hoảng loạn. • Hiển thị đường đi hoặc hướng di chuyển. | • Cài đặt logic FOLLOW\_LEADER (bám theo cứu hộ, khi sát bên thì cùng hướng về exit). 
+• Cài đặt logic FLOCK (gộp nhóm dồn về hành lang, giảm tốc độ khi chen lấn đông người). 
+• Cân bằng chỉ số spawn trong phòng (phân bổ số lượng theo diện tích phòng và gán panic\_level ban đầu theo khoảng cách tới bếp). | • Cân bằng số lượng Firefighter (2) và Rescuer (1). 
+• Cài đặt logic Firefighter hết nước: rút lui ra ngoài sân `is_outside` (không đứng chắn `is_exit`), cơ chế nạp lại nước đầy 100.0 sau 20 cycle ngoài sân và tạm dừng trừ stamina.
+• Cân bằng tốc độ lan lửa (điều chỉnh xác suất lan khoảng 2.2% / cycle). |
 | **Tuần 5** | Hoàn thiện & Slide | • Kiểm thử 50–100 tác tử. • Chụp ảnh mô phỏng & biểu đồ. • Ghép Slide tổng hợp phần môi trường. | • Lập bảng Utility hoàn chỉnh cho Evacuee. • Tinh chỉnh điểm phạt và ưu tiên. • Ghép Slide phần Evacuee. | • Lập bảng Utility hoàn chỉnh cho Firefighter & Rescuer. • Cân bằng chỉ số sinh tồn. • Tổng duyệt code & Slide phần cứu hộ \+ lửa. |
 
 ## **CHƯƠNG 4: HƯỚNG DẪN KHUNG CODE CẤU TRÚC GAML MẪU**
@@ -334,12 +349,25 @@ species Firefighter parent: RescueWorker {
             u\_wander \<- u\_wander \+ 30.0;  
         }  
           
-        if (u\_extinguish \>= u\_move and u\_extinguish \>= u\_wander and u\_extinguish \> 0 and water\_supply \> 0\) {  
+        // Tie-break chuẩn: EXTINGUISH > MOVE_TO_FIRE > WANDER
+        if (u\_extinguish \>= u\_move and u\_extinguish \>= u\_wander and u\_extinguish \> 0 and water\_supply \> 0) {  
             do extinguish target: nearest\_fire;  
-        } else if (u\_move \>= u\_wander and nearest\_fire \!= nil) {  
-            do goto target: nearest\_fire;  
+        } else if (u\_move \>= u\_wander and nearest\_fire \!= nil and water\_supply \> 0) {  
+            // Tiếp cận ô an toàn kề cạnh đám lửa, không bước vào tâm ô lửa
+            list<floor_cell> safe_neighbors \<- floor_cell(nearest\_fire.location).neighbors where (not each.is_fire and not each.is_wall);
+            if (\!empty(safe_neighbors)) {
+                do goto target: one\_of(safe_neighbors).location on: room\_graph;
+            } else {
+                do goto target: nearest\_fire.location on: room\_graph;
+            }
         } else {  
-            do wander;  
+            // Khi hết nước: rút lui ra ngoài sân (is_outside), không chặn cửa thoát hiểm
+            if (water\_supply \<= 0) {
+                floor_cell safe_outside \<- empty(floor_cell where (each.is_outside)) ? nil : (floor_cell where (each.is_outside) closest_to self);
+                if (safe_outside \!= nil) { do goto target: safe_outside.location on: room\_graph; }
+            } else {
+                do wander;  
+            }
         }  
     }  
       
