@@ -264,7 +264,7 @@ else if (gx >= 26 and gx <= 45) {
 	}
 
 	// ===== TV1: Cập nhật lan tỏa và tiêu tán khói (Smoke Simulation) =====
-	reflex update_smoke when: (every(2 #cycle)) {
+	reflex update_smoke when: every(2 #cycle) {
 		// Khói phát tán từ các ổ lửa đang hoạt động
 		ask Fire where (each.is_active) {
 			floor_cell fc <- floor_cell(location);
@@ -282,7 +282,9 @@ else if (gx >= 26 and gx <= 45) {
 						do update_color;
 					}
 				}
-				do fc.update_color;
+				ask fc {
+					do update_color;
+				}
 			}
 		}
 
