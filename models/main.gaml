@@ -536,11 +536,11 @@ species Firefighter parent: RescueWorker {
 
 			if (dist_fire <= vision) {
 				floor_cell my_cell <- floor_cell(self.location);
-//				floor_cell fire_cell <- floor_cell(nearest_fire.location);
+				floor_cell fire_cell <- floor_cell(nearest_fire.location);
+				bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
 
-				// EXTINGUISH: Khi ở cạnh lửa (<= 1.5 ô), thuộc ô kề neighbors (không bị tường cản) và còn nước
-//				if (dist_fire <= 1.5 and (my_cell.neighbors contains fire_cell) and water_supply > 0.0) {
-				if (dist_fire <= 1.5 and not my_cell.is_fire and water_supply >0.0){
+				// EXTINGUISH: Khi ở cạnh lửa (<= 1.5 ô), cùng ô hoặc ô kề không bị tường cản và còn nước
+				if (dist_fire <= 1.5 and can_reach_fire and water_supply > 0.0) {
 					u_extinguish <- u_extinguish + 70.0;
 					
 					if (nearest_fire.intensity > 50.0) {
@@ -611,9 +611,10 @@ species Firefighter parent: RescueWorker {
 		if (current_action = "EXTINGUISH") {
 			if (target_fire != nil) {
 				floor_cell my_cell <- floor_cell(self.location);
-//				floor_cell fire_cell <- floor_cell(target_fire.location);
+				floor_cell fire_cell <- floor_cell(target_fire.location);
+				bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
 				
-				if (self distance_to target_fire <= 1.5 and not my_cell.is_fire) {
+				if (self distance_to target_fire <= 1.5 and can_reach_fire) {
 					do extinguish(target_fire);
 				}
 			}
@@ -624,7 +625,8 @@ species Firefighter parent: RescueWorker {
 				if (!empty(safe_neighbors)) {
 					do goto target: one_of(safe_neighbors).location on: room_graph;
 				} else {
-					do goto target: target_fire.location on: room_graph;
+					// Nếu không có ô an toàn kề bên thì tạm dừng tiếp cận, tránh dẫm vào tâm ô lửa
+					do wander;
 				}
 			}
 		} else if (current_action = "WANDER") {
