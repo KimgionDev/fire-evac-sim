@@ -411,18 +411,11 @@ species Evacuee skills: [moving] {
 	}
 
 	action follow_leader (RescueWorker leader) {
-		if (leader != nil) {
-			// Bám theo cứu hộ trên room_graph
-			do goto target: leader.location on: room_graph;
-		}
+		// TV2 cài đặt logic bám theo cứu hộ tại Tuần 4
 	}
 
 	action flock {
-		// Dồn nhóm di chuyển về phía lối thoát hiểm gần nhất trên room_graph
-		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-		if (nearest_exit != nil) {
-			do goto target: nearest_exit.location on: room_graph;
-		}
+		// TV2 cài đặt logic gộp nhóm tại Tuần 4
 	}
 
 	reflex main_decision {
@@ -431,7 +424,7 @@ species Evacuee skills: [moving] {
 			stamina <- max(0.0, stamina - 0.1);
 			panic_level <- min(100.0, max(0.0, panic_level + 0.5));
 		} else {
-			// Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, hoảng loạn hạ nhiệt dần
+			// Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, khói tan, hoảng loạn hạ nhiệt dần
 			panic_level <- max(0.0, panic_level - 1.0);
 		}
 		
@@ -456,16 +449,10 @@ species Evacuee skills: [moving] {
 			if (nearest_exit != nil) {
 				do evacuate(nearest_exit);
 			}
-		} else if (current_action = "FOLLOW_LEADER") {
-			list<RescueWorker> responders <- (Firefighter as list) + (Rescuer as list);
-			RescueWorker nearest_worker <- empty(responders) ? nil : (responders closest_to self);
-			if (nearest_worker != nil) {
-				do follow_leader(nearest_worker);
-			}
-		} else if (current_action = "FLOCK" or empty(Fire)) {
-			// Khi tụ tập gộp nhóm hoặc khi lửa đã tắt -> cùng nhau di chuyển thoát ra ngoài
-			do flock;
 		}
+		// TV2 sẽ bổ sung xử lý di chuyển cho FOLLOW_LEADER và FLOCK trong Tuần 4
+		
+		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		
 		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		floor_cell my_cell <- floor_cell(location);
