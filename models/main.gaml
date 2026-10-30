@@ -711,23 +711,12 @@ species Rescuer parent: RescueWorker {
 			list<Evacuee> nearby_evacuees <- Evacuee at_distance calm_radius where (not each.is_escaped);
 
 			if (!empty(nearby_evacuees)) {
-				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-
-				// Trấn an và dẫn dắt người dân ở gần cùng di chuyển về phía cửa thoát hiểm né tường (từ từ theo room_graph, không dịch chuyển)
+				// Trấn an những người đang ở gần (panic_level - 10.0, kẹp không âm theo Mục 8.5 & Ảnh 1, 2)
 				ask nearby_evacuees {
 					self.panic_level <- max(0.0, self.panic_level - 10.0);
-					if (safe_exit != nil) {
-						do goto target: safe_exit.location on: room_graph;
-					}
-					floor_cell c <- floor_cell(self.location);
-					if (c != nil and c.is_exit and not self.is_escaped) {
-						self.is_escaped <- true;
-						nb_escaped <- nb_escaped + 1;
-						write "[THOÁT HIỂM] " + self.name + " đã thoát an toàn cùng cứu hộ tại cycle " + cycle;
-						do die;
-					}
 				}
 				// Cứu hộ dẫn đường di chuyển về phía lối thoát hiểm gần nhất
+				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 				if (safe_exit != nil) {
 					do goto target: safe_exit.location on: room_graph;
 				}
