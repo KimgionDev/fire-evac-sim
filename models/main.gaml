@@ -530,42 +530,35 @@ species Firefighter parent: RescueWorker {
 		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 
-		// 1. Kiểm tra ngọn lửa trong tầm nhìn (dist <= vision = 15.0)
-		if (nearest_fire != nil) {
+		// 1. Khi hết nước hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước hoặc tuần tra)
+		if (water_supply <= 0.0 or nearest_fire = nil) {
+			u_wander <- 30.0;
+		} else {
 			float dist_fire <- self distance_to nearest_fire;
+			floor_cell my_cell <- floor_cell(self.location);
+			floor_cell fire_cell <- floor_cell(nearest_fire.location);
+			bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
 
-			if (dist_fire <= vision) {
-				floor_cell my_cell <- floor_cell(self.location);
-				floor_cell fire_cell <- floor_cell(nearest_fire.location);
-				bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
-
-				// EXTINGUISH: Khi ở cạnh lửa (<= 1.5 ô), cùng ô hoặc ô kề không bị tường cản và còn nước
-				if (dist_fire <= 1.5 and can_reach_fire and water_supply > 0.0) {
-					u_extinguish <- u_extinguish + 70.0;
-					
-					if (nearest_fire.intensity > 50.0) {
-						u_extinguish <- u_extinguish + 30.0;
-					}
-					
-					if (nearest_exit != nil and (nearest_fire distance_to nearest_exit) <= 3.0) {
-						u_extinguish <- u_extinguish + 40.0;
-					}
+			// EXTINGUISH: Khi ở ngay cạnh lửa (<= 1.5 ô), cùng ô hoặc ô kề không bị tường cản và còn nước
+			if (dist_fire <= 1.5 and can_reach_fire) {
+				u_extinguish <- u_extinguish + 70.0;
+				
+				if (nearest_fire.intensity > 50.0) {
+					u_extinguish <- u_extinguish + 30.0;
 				}
-
-				// MOVE_TO_FIRE: Khi còn nước và lửa ở trong tầm nhìn (1.5 < dist <= vision)
-				if (water_supply > 0.0 and dist_fire > 1.5) {
-					u_move_fire <- u_move_fire + 50.0;
-					
-					if (nearest_fire.intensity > 50.0) {
-						u_move_fire <- u_move_fire + 20.0;
-					}
+				
+				if (nearest_exit != nil and (nearest_fire distance_to nearest_exit) <= 3.0) {
+					u_extinguish <- u_extinguish + 40.0;
 				}
 			}
-		}
-
-		// 2. WANDER: Không có lửa trong tầm nhìn HOẶC khi hết nước (water_supply <= 0)
-		if (nearest_fire = nil or (self distance_to nearest_fire) > vision or water_supply <= 0.0) {
-			u_wander <- 30.0;
+			// MOVE_TO_FIRE: Khi còn nước và chưa tới gần (dist > 1.5 ô) -> Di chuyển thẳng tới tiếp cận ngọn lửa
+			else {
+				u_move_fire <- u_move_fire + 50.0;
+				
+				if (nearest_fire.intensity > 50.0) {
+					u_move_fire <- u_move_fire + 20.0;
+				}
+			}
 		}
 
 		// 3. Phân giải hòa điểm chuẩn Tie-break: EXTINGUISH > MOVE_TO_FIRE > WANDER
