@@ -288,9 +288,7 @@ global {
 		// Khói tiêu tán dần ở những ô không có lửa
 		ask floor_cell where (each.smoke_density > 0.0 and not each.is_fire) {
 			self.smoke_density <- max(0.0, self.smoke_density - 0.05);
-			if (self.smoke_density <= 0.25) {
-				self.is_fire_hazard <- false;
-			}
+			self.is_fire_hazard <- (self.smoke_density > 0.25);
 			do update_color;
 		}
 	}
@@ -306,18 +304,18 @@ grid floor_cell width: grid_width height: grid_height {
 	bool is_room <- false;
 	bool is_kitchen <- false;
 	bool is_outside <- false;
-	float smoke_density <- 0.0; //Mật độ khói (0.0 .. 1.0)
+	float smoke_density <- 0.0;
 	rgb base_color <- #white;
 	rgb color <- #white;
 
 	action update_color {
 		if (is_fire) {
 			color <- rgb(231, 76, 60);
+		} else if (is_exit) {
+			color <- rgb(46, 204, 113);
 		} else if (smoke_density > 0.05) {
 			int gray <- int(235 - smoke_density * 135);
 			color <- rgb(gray, gray, gray);
-		} else if (is_exit) {
-			color <- rgb(46, 204, 113);
 		} else {
 			color <- base_color;
 		}
@@ -444,11 +442,9 @@ species Evacuee skills: [moving] {
 	}
 
 	action follow_leader (RescueWorker leader) {
-		// TV2 cài đặt logic bám theo cứu hộ tại Tuần 4
 	}
 
 	action flock {
-		// TV2 cài đặt logic gộp nhóm tại Tuần 4
 	}
 
 	reflex main_decision {
@@ -461,8 +457,7 @@ species Evacuee skills: [moving] {
 			panic_level <- max(0.0, panic_level - 1.0);
 		}
 		
-		
-		//Kiem tra tu vong do kiet suc
+		// Kiểm tra tử vong do kiệt sức
 		if (stamina <= 0.0 and not is_escaped) {
 			nb_dead <- nb_dead + 1;
 			write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
@@ -471,7 +466,7 @@ species Evacuee skills: [moving] {
 
 		do compute_utility;
 		
-		//thuc hien hanh dong di chuyen
+		// Thực hiện hành động di chuyển
 		if (current_action = "FLEE_FIRE") {
 			Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 			if (nearest_fire != nil) {
@@ -483,9 +478,6 @@ species Evacuee skills: [moving] {
 				do evacuate(nearest_exit);
 			}
 		}
-		// TV2 sẽ bổ sung xử lý di chuyển cho FOLLOW_LEADER và FLOCK trong Tuần 4
-		
-		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		
 		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		floor_cell my_cell <- floor_cell(location);
@@ -578,7 +570,7 @@ species Firefighter parent: RescueWorker {
 		}
 	}
 
-	// Cập nhật action compute_utility chuẩn ma trận và Tie-break (Mục 2.2 & 2.6 de-bai-do-an.md)
+	// Tính toán điểm tiện ích (Utility)
 	action compute_utility {
 		u_extinguish <- 0.0;
 		u_move_fire  <- 0.0;
@@ -637,7 +629,7 @@ species Firefighter parent: RescueWorker {
 			if (target.intensity <= 0) {
 				ask floor_cell(target.location) {
 					is_fire        <- false;
-					is_fire_hazard <- false;
+					is_fire_hazard <- (smoke_density > 0.25);
 					do update_color;
 				}
 
