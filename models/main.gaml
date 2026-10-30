@@ -411,15 +411,22 @@ species Evacuee skills: [moving] {
 	}
 
 	action follow_leader (RescueWorker leader) {
+		// TV2 cài đặt logic bám theo cứu hộ tại Tuần 4
 	}
 
 	action flock {
+		// TV2 cài đặt logic gộp nhóm tại Tuần 4
 	}
 
 	reflex main_decision {
-		//giam the luc va tang nhe panic theo thoi gian
-		stamina <- max(0.0, stamina - 0.1);
-		panic_level <- min(100.0, max(0.0, panic_level + 0.5));
+		// Chỉ giảm thể lực và tăng hoảng loạn khi trong tòa nhà CÒN LỬA / KHÓI
+		if (!empty(Fire)) {
+			stamina <- max(0.0, stamina - 0.1);
+			panic_level <- min(100.0, max(0.0, panic_level + 0.5));
+		} else {
+			// Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, khói tan, hoảng loạn hạ nhiệt dần
+			panic_level <- max(0.0, panic_level - 1.0);
+		}
 		
 		
 		//Kiem tra tu vong do kiet suc
@@ -443,6 +450,9 @@ species Evacuee skills: [moving] {
 				do evacuate(nearest_exit);
 			}
 		}
+		// TV2 sẽ bổ sung xử lý di chuyển cho FOLLOW_LEADER và FLOCK trong Tuần 4
+		
+		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		
 		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		floor_cell my_cell <- floor_cell(location);
@@ -499,57 +509,175 @@ species RescueWorker skills: [moving] {
 
 // ============ FIREFIGHTER ============
 species Firefighter parent: RescueWorker {
-	float water_supply <- 100.0;
+	float water_supply    <- 100.0;
+	string current_action <- "WANDER";
+
+	float u_extinguish <- 0.0;
+	float u_move_fire  <- 0.0;
+	float u_wander     <- 0.0;
+
+	// Biến đếm cycle tiếp nước ngoài sân
+	int refill_timer <- 0;
 
 	init {
 		color <- #yellow;
 	}
 
+	// Ghi đè stamina_loss: Tạm dừng trừ stamina khi đã ra ngoài sân (is_outside)
+	reflex stamina_loss {
+		floor_cell my_cell <- floor_cell(location);
+		if (my_cell != nil and not my_cell.is_outside) {
+			stamina <- max(0.0, stamina - 0.05);
+		}
+	}
+
+	// Cập nhật action compute_utility chuẩn ma trận và Tie-break (Mục 2.2 & 2.6 de-bai-do-an.md)
 	action compute_utility {
+		u_extinguish <- 0.0;
+		u_move_fire  <- 0.0;
+		u_wander     <- 0.0;
+
+		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+
+		// 1. Khi hết nước hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước hoặc tuần tra)
+		if (water_supply <= 0.0 or nearest_fire = nil) {
+			u_wander <- 30.0;
+		} else {
+			float dist_fire <- self distance_to nearest_fire;
+
+			// EXTINGUISH: Khi ở ngay cạnh lửa (<= 1.5 ô) và còn nước -> Ưu tiên dập ngay
+			if (dist_fire <= 1.5) {
+				u_extinguish <- u_extinguish + 70.0;
+				
+				if (nearest_fire.intensity > 50.0) {
+					u_extinguish <- u_extinguish + 30.0;
+				}
+				
+				if (nearest_exit != nil and (nearest_fire distance_to nearest_exit) <= 3.0) {
+					u_extinguish <- u_extinguish + 40.0;
+				}
+			}
+			// MOVE_TO_FIRE: Khi còn nước và chưa tới gần (dist > 1.5 ô) -> Di chuyển thẳng tới ngọn lửa
+			else {
+				u_move_fire <- u_move_fire + 50.0;
+				
+				if (nearest_fire.intensity > 50.0) {
+					u_move_fire <- u_move_fire + 20.0;
+				}
+			}
+		}
+
+		// 3. Phân giải hòa điểm chuẩn Tie-break: EXTINGUISH > MOVE_TO_FIRE > WANDER
+		float max_score <- max([u_extinguish, u_move_fire, u_wander]);
+
+		if (max_score <= 0.0) {
+			current_action <- "WANDER";
+		} else if (u_extinguish = max_score and water_supply > 0.0) {
+			current_action <- "EXTINGUISH";
+		} else if (u_move_fire = max_score and water_supply > 0.0) {
+			current_action <- "MOVE_TO_FIRE";
+		} else {
+			current_action <- "WANDER";
+		}
 	}
 
 	// Action dập lửa
 	action extinguish (Fire target) {
 		if (target != nil and water_supply > 0) {
-			target.intensity <- target.intensity - 20.0; // Giảm 20 theo INTERFACE
-			water_supply <- max(0.0, water_supply - 5.0); // Giảm 5 theo INTERFACE
+			target.intensity <- target.intensity - 20.0;
+			water_supply     <- max(0.0, water_supply - 5.0);
 
-			// Nếu ngọn lửa bị dập tắt hoàn toàn
 			if (target.intensity <= 0) {
 				ask floor_cell(target.location) {
-					is_fire <- false;
-					is_fire_hazard <- false; // Xóa cờ nguy hiểm
+					is_fire        <- false;
+					is_fire_hazard <- false;
 					do update_color;
 				}
 
 				ask target {
 					do die;
 				}
-
 			}
-
 		}
-
 	}
 
 	// Logic quyết định di chuyển & dập lửa
 	reflex main_decision {
-		Fire target_fire <- Fire closest_to self;
-		if (target_fire != nil) {
-			if (self distance_to target_fire <= 1.5) {
+		do compute_utility;
+
+		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
+
+		if (current_action = "EXTINGUISH") {
+			if (target_fire != nil and (self distance_to target_fire <= 1.5)) {
 				do extinguish(target_fire);
-			} else {
+			}
+		} else if (current_action = "MOVE_TO_FIRE") {
+			if (target_fire != nil) {
+				// Di chuyển trên room_graph tiếp cận ngọn lửa gần nhất
 				do goto target: target_fire.location on: room_graph;
 			}
+		} else if (current_action = "WANDER") {
+			floor_cell my_cell <- floor_cell(location);
 
+			// A. TRƯỜNG HỢP HẾT NƯỚC (water_supply <= 0)
+			if (water_supply <= 0.0) {
+				// Khi đã ra tới ngoài sân (is_outside)
+				if (my_cell != nil and my_cell.is_outside) {
+					refill_timer <- refill_timer + 1;
+					
+					// Đủ 20 cycle tiếp nước -> hồi phục 100% bình nước và quay lại làm nhiệm vụ
+					if (refill_timer >= 20) {
+						water_supply <- 100.0;
+						refill_timer <- 0;
+					}
+				} 
+				// Khi chưa ra tới sân -> di chuyển ra ô ngoài sân NGAY CẠNH CỬA THOÁT HIỂM gần nhất
+				else {
+					floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+					list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+					floor_cell safe_outside <- nil;
+					if (nearest_exit != nil) {
+						safe_outside <- outside_cells closest_to nearest_exit;
+					} else {
+						safe_outside <- empty(outside_cells) ? nil : (outside_cells closest_to self);
+					}
+					
+					if (safe_outside != nil) {
+						do goto target: safe_outside.location on: room_graph;
+					}
+				}
+			} 
+			// B. TRƯỜNG HỢP ĐÃ DẬP SẠCH LỬA (empty(Fire))
+			else if (empty(Fire)) {
+				// Khi đã dập sạch toàn bộ lửa -> rút lui ra ngoài sân an toàn cạnh cửa thoát hiểm
+				if (my_cell = nil or not my_cell.is_outside) {
+					floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+					list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+					floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
+					if (safe_outside != nil) {
+						do goto target: safe_outside.location on: room_graph;
+					}
+				}
+				// Nếu đã ra ngoài sân rồi -> dừng lại an toàn ở sân, không đi lang thang vào trong
+			} 
+			// C. TRƯỜNG HỢP CÒN NƯỚC VÀ CÒN LỬA (tuần tra tìm lửa)
+			else {
+				list<floor_cell> wander_cells <- floor_cell where (each.is_floor and not each.is_wall and not each.is_fire);
+				if (!empty(wander_cells)) {
+					do goto target: one_of(wander_cells).location on: room_graph;
+				}
+			}
 		}
-
 	}
 
 	aspect default {
 		draw rectangle(1.2, 1.2) color: color border: #black;
+		// Trực quan hóa nhãn hành động trên đầu tác tử theo Mục 3.3 INTERFACE.md
+		if (current_action != "IDLE") {
+			draw current_action size: 1.2 color: #black at: location + {0, -1};
+		}
 	}
-
 }
 
 // ============ RESCUER ============
@@ -558,6 +686,14 @@ species Rescuer parent: RescueWorker {
 	string current_action <- "IDLE";
 	init {
 		color <- #cyan;
+	}
+
+	// Ghi đè stamina_loss: Tạm dừng trừ stamina khi đã ra ngoài sân (is_outside)
+	reflex stamina_loss {
+		floor_cell my_cell <- floor_cell(location);
+		if (my_cell != nil and not my_cell.is_outside) {
+			stamina <- max(0.0, stamina - 0.05);
+		}
 	}
 
 	action compute_utility {
@@ -579,7 +715,7 @@ species Rescuer parent: RescueWorker {
 				ask nearby_evacuees {
 					self.panic_level <- max(0.0, self.panic_level - 10.0);
 				}
-				// Khi đã có người đi cùng -> dẫn họ di chuyển về phía lối thoát hiểm gần nhất
+				// Cứu hộ dẫn đường di chuyển về phía lối thoát hiểm gần nhất
 				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 				if (safe_exit != nil) {
 					do goto target: safe_exit.location on: room_graph;
@@ -602,10 +738,15 @@ species Rescuer parent: RescueWorker {
 				do guide(target);
 			}
 		} else {
-			// Khi không còn ai cần cứu -> đi ra cửa thoát hiểm
-			floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-			if (safe_exit != nil) {
-				do goto target: safe_exit.location on: room_graph;
+			// Khi không còn ai cần cứu -> rút lui ra ngoài sân an toàn, không đứng chắn cửa exit
+			floor_cell my_cell <- floor_cell(location);
+			if (my_cell = nil or not my_cell.is_outside) {
+				floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+				list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+				floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
+				if (safe_outside != nil) {
+					do goto target: safe_outside.location on: room_graph;
+				}
 			}
 		}
 	}
@@ -613,6 +754,10 @@ species Rescuer parent: RescueWorker {
 	// Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 	aspect default {
 		draw triangle(1.3) color: color border: #black;
+		// Trực quan hóa nhãn hành động trên đầu tác tử theo Mục 3.3 INTERFACE.md
+		if (current_action != "IDLE") {
+			draw current_action size: 1.2 color: #black at: location + {0, -1};
+		}
 	}
 
 }
@@ -625,7 +770,7 @@ species Fire {
 
 	// 1. Lan truyền lửa ngẫu nhiên
 	reflex spread {
-		if (is_active and flip(0.05)) { // 5% mỗi cycle
+		if (is_active and flip(0.02)) {
 			floor_cell current_cell <- floor_cell(location);
 			if (current_cell != nil) {
 			// Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
