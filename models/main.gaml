@@ -22,7 +22,6 @@ global {
 	int nb_dead <- 0;
 	int nb_panic <- 0;
 
-	// ===== TV1: Đồ thị di chuyển né tường & danh sách ô thoát hiểm =====
 	graph room_graph;
 	list<floor_cell> exit_cells;
 
@@ -40,7 +39,6 @@ global {
 
 	}
 
-	// ===== TV1: Thiết lập bản đồ + exit_cells + room_graph =====
 	action setup_map {
 		ask floor_cell {
 			int gx <- self.grid_x;
@@ -55,7 +53,7 @@ global {
 				color <- base_color;
 			}
 			// 2. Tường bao ngoài & Cửa thoát hiểm
-else if (gx = 3 or gx = 46 or gy = 3 or gy = 46) {
+			else if (gx = 3 or gx = 46 or gy = 3 or gy = 46) {
 				if ((gx = 3 or gx = 46) and (gy >= 16 and gy <= 18)) {
 				// Cửa thoát hiểm — 2 cửa ở 2 đầu hành lang, mỗi cửa rộng 3 ô
 					is_exit <- true;
@@ -72,7 +70,7 @@ else if (gx = 3 or gx = 46 or gy = 3 or gy = 46) {
 
 			}
 			// 3. Bên trong tòa nhà
-else {
+			else {
 			// --- A. 4 Phòng họp cạnh trên (gy 4..14) ---
 				if (gy >= 4 and gy <= 14) {
 					if (gx = 14 or gx = 25 or gx = 35) {
@@ -96,7 +94,7 @@ else {
 
 				}
 				// --- B. Vách ngăn phòng họp – hành lang (gy = 15) ---
-else if (gy = 15) {
+				else if (gy = 15) {
 					if ((gx >= 8 and gx <= 9) or (gx >= 19 and gx <= 20) or (gx >= 29 and gx <= 30) or (gx >= 40 and gx <= 41)) {
 					// Cửa phòng họp
 						is_floor <- true;
@@ -112,14 +110,14 @@ else if (gy = 15) {
 
 				}
 				// --- C. Hành lang chính (gy 16..18) — nối thẳng ra 2 cửa thoát ---
-else if (gy >= 16 and gy <= 18) {
+				else if (gy >= 16 and gy <= 18) {
 					is_floor <- true;
 					is_wall <- false;
 					base_color <- rgb(245, 245, 245);
 					color <- base_color;
 				}
 				// --- D. Khu làm việc chung (gy 19..33) ---
-else if (gy >= 19 and gy <= 33) {
+				else if (gy >= 19 and gy <= 33) {
 					if (((gy >= 21 and gy <= 24) or (gy >= 27 and gy <= 30)) and ((gx >= 7 and gx <= 12) or (gx >= 17 and gx <= 22) or (gx >= 27 and gx <= 32) or (gx >= 37 and gx <= 42))) {
 					// Cụm bàn làm việc (vật cản)
 						is_wall <- true;
@@ -135,14 +133,14 @@ else if (gy >= 19 and gy <= 33) {
 
 				}
 				// --- E. Hành lang chuyển tiếp (gy = 34) ---
-else if (gy = 34) {
+				else if (gy = 34) {
 					is_floor <- true;
 					is_wall <- false;
 					base_color <- rgb(245, 245, 245);
 					color <- base_color;
 				}
 				// --- F. Vách ngăn Bếp – Kho (gy = 35) ---
-else if (gy = 35) {
+				else if (gy = 35) {
 					if ((gx >= 12 and gx <= 13) or (gx >= 34 and gx <= 35) or (gx >= 24 and gx <= 25)) {
 						is_floor <- true;
 						is_wall <- false;
@@ -157,7 +155,7 @@ else if (gy = 35) {
 
 				}
 				// --- G. Khu vực phía dưới (gy 36..45) ---
-else if (gy >= 36 and gy <= 45) {
+				else if (gy >= 36 and gy <= 45) {
 				// Bếp / Pantry — góc dưới trái (gx 4..22)
 					if (gx >= 4 and gx <= 22) {
 						if ((gx >= 5 and gx <= 6 and gy >= 38 and gy <= 43) or (gy >= 43 and gy <= 44 and gx >= 5 and gx <= 18)) {
@@ -176,21 +174,21 @@ else if (gy >= 36 and gy <= 45) {
 
 					}
 					// Tường ngăn Bếp – Kho (gx = 23)
-else if (gx = 23) {
+					else if (gx = 23) {
 						is_wall <- true;
 						is_floor <- false;
 						base_color <- rgb(80, 80, 80);
 						color <- base_color;
 					}
 					// Hành lang sảnh nối (gx 24..25)
-else if (gx >= 24 and gx <= 25) {
+					else if (gx >= 24 and gx <= 25) {
 						is_floor <- true;
 						is_wall <- false;
 						base_color <- rgb(245, 245, 245);
 						color <- base_color;
 					}
 					// Kho / Phòng nghỉ — góc dưới phải (gx 26..45)
-else if (gx >= 26 and gx <= 45) {
+					else if (gx >= 26 and gx <= 45) {
 						if ((gy >= 38 and gy <= 42) and ((gx >= 29 and gx <= 31) or (gx >= 37 and gx <= 39))) {
 						// Kệ kho (vật cản)
 							is_wall <- true;
@@ -204,12 +202,13 @@ else if (gx >= 26 and gx <= 45) {
 							color <- base_color;
 						}
 
-					} } } }
+					} 
+				} 
+			} 
+		}
 
-					// ===== TV1: Cache danh sách ô thoát hiểm =====
 		exit_cells <- floor_cell where (each.is_exit);
 
-		// ===== TV1: Dựng đồ thị di chuyển trên các ô đi được (né tường tự động) =====
 		// Khi tác tử dùng: do goto target: xxx on: room_graph;
 		// → GAMA tự tìm đường A* trên đồ thị này, 100% không bước lên ô tường.
 		list<floor_cell> walkable <- floor_cell where (each.is_floor);
@@ -259,11 +258,43 @@ else if (gx >= 26 and gx <= 45) {
 
 	// ===== Cập nhật chỉ số toàn cục mỗi cycle =====
 	reflex update_metrics {
-	// Cập nhật số người đang hoảng loạn (panic_level > 70) theo INTERFACE.md
 		nb_panic <- Evacuee count (each.panic_level > 70.0);
-	} }
+	}
 
-	// ============ GRID  ============
+	reflex update_smoke when: (every(2 #cycle)) {
+		// Khói phát tán từ các ổ lửa đang hoạt động
+		ask Fire where (each.is_active) {
+			floor_cell fc <- floor_cell(location);
+			if (fc != nil) {
+				fc.smoke_density <- 1.0;
+				fc.is_fire_hazard <- true;
+				// Lan tỏa sang các ô sàn lân cận đi được
+				list<floor_cell> safe_neighbors <- fc.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
+				ask safe_neighbors {
+					if (not self.is_fire) {
+						self.smoke_density <- min(0.85, self.smoke_density + 0.35);
+						if (self.smoke_density > 0.25) {
+							self.is_fire_hazard <- true;
+						}
+						do update_color;
+					}
+				}
+				ask fc {
+				    do update_color;
+				}
+			}
+		}
+
+		// Khói tiêu tán dần ở những ô không có lửa
+		ask floor_cell where (each.smoke_density > 0.0 and not each.is_fire) {
+			self.smoke_density <- max(0.0, self.smoke_density - 0.05);
+			self.is_fire_hazard <- (self.smoke_density > 0.25);
+			do update_color;
+		}
+	}
+}
+
+// ============ GRID  ============
 grid floor_cell width: grid_width height: grid_height {
 	bool is_wall <- false;
 	bool is_floor <- true;
@@ -273,22 +304,25 @@ grid floor_cell width: grid_width height: grid_height {
 	bool is_room <- false;
 	bool is_kitchen <- false;
 	bool is_outside <- false;
+	float smoke_density <- 0.0;
 	rgb base_color <- #white;
 	rgb color <- #white;
 
 	action update_color {
 		if (is_fire) {
 			color <- rgb(231, 76, 60);
-		} else if (is_fire_hazard) {
-			color <- rgb(243, 156, 18);
 		} else if (is_exit) {
 			color <- rgb(46, 204, 113);
+		} else if (smoke_density > 0.05) {
+			int gray <- int(235 - smoke_density * 135);
+			color <- rgb(gray, gray, gray);
 		} else {
 			color <- base_color;
-		} } }
+		}
+	}
+}
 
 		// ============ EVACUEE ============
-// Do thành viên TV2 phụ trách cài đặt hành vi
 species Evacuee skills: [moving] {
 	float stamina <- 100.0;
 	float panic_level <- 0.0;
@@ -297,7 +331,6 @@ species Evacuee skills: [moving] {
 	bool is_escaped <- false;
 	string current_action <- "IDLE";
 
-	// 4 biến lưu điểm số tiện ích vừa tính được
 	float u_evacuate <- 0.0;
 	float u_flee <- 0.0;
 	float u_follow <- 0.0;
@@ -399,23 +432,19 @@ species Evacuee skills: [moving] {
 				}
 			}
 			
-			// Tháo chạy ngược hướng ngọn lửa nhưng vẫn né tường
 			do goto target: flee_point on: room_graph;
 	}
 }
 	action evacuate (floor_cell target_exit) {
 		if(target_exit != nil){
-			// Di chuyển theo đồ thị né tường về phía cửa thoát hiểm
 			do goto target: target_exit on: room_graph;
 		}
 	}
 
 	action follow_leader (RescueWorker leader) {
-		// TV2 cài đặt logic bám theo cứu hộ tại Tuần 4
 	}
 
 	action flock {
-		// TV2 cài đặt logic gộp nhóm tại Tuần 4
 	}
 
 	reflex main_decision {
@@ -428,8 +457,7 @@ species Evacuee skills: [moving] {
 			panic_level <- max(0.0, panic_level - 1.0);
 		}
 		
-		
-		//Kiem tra tu vong do kiet suc
+		// Kiểm tra tử vong do kiệt sức
 		if (stamina <= 0.0 and not is_escaped) {
 			nb_dead <- nb_dead + 1;
 			write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
@@ -438,7 +466,7 @@ species Evacuee skills: [moving] {
 
 		do compute_utility;
 		
-		//thuc hien hanh dong di chuyen
+		// Thực hiện hành động di chuyển
 		if (current_action = "FLEE_FIRE") {
 			Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 			if (nearest_fire != nil) {
@@ -450,9 +478,6 @@ species Evacuee skills: [moving] {
 				do evacuate(nearest_exit);
 			}
 		}
-		// TV2 sẽ bổ sung xử lý di chuyển cho FOLLOW_LEADER và FLOCK trong Tuần 4
-		
-		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		
 		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
 		floor_cell my_cell <- floor_cell(location);
@@ -473,13 +498,27 @@ species Evacuee skills: [moving] {
 		} else if (current_action = "FOLLOW_LEADER") {
 			my_color <- #yellow;
 		} else if (current_action = "FLOCK") {
-			my_color <- rgb(155, 89, 182); // Màu tím
+			my_color <- rgb(155, 89, 182);
 		}
 
-		draw circle(0.6) color: my_color border: #black;
+		//Vòng hào quang thể hiện mức độ hoảng loạn (panic_level)
+		rgb panic_color <- rgb(52, 152, 219, 100); // Xanh dịu (< 40)
+		if (panic_level > 70.0) {
+			panic_color <- rgb(231, 76, 60, 180); // Đỏ báo động (> 70)
+		} else if (panic_level > 40.0) {
+			panic_color <- rgb(243, 156, 18, 140); // Cam căng thẳng (40..70)
+		}
+		draw circle(0.85) color: panic_color;
+		draw circle(0.55) color: my_color border: #black;
+
+		point dir_target <- location + {cos(heading) * 1.1, sin(heading) * 1.1};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
 		if (current_action != "IDLE") {
-			draw current_action size: 1.2 color: #black at: location + {0, -1};
-		} } }
+			draw current_action size: 0.9 color: #black at: location + {0, -0.9};
+		}
+	}
+}
 
 		// ============ RESCUEWORKER ============
 species RescueWorker skills: [moving] {
@@ -531,7 +570,7 @@ species Firefighter parent: RescueWorker {
 		}
 	}
 
-	// Cập nhật action compute_utility chuẩn ma trận và Tie-break (Mục 2.2 & 2.6 de-bai-do-an.md)
+	// Tính toán điểm tiện ích (Utility)
 	action compute_utility {
 		u_extinguish <- 0.0;
 		u_move_fire  <- 0.0;
@@ -582,7 +621,6 @@ species Firefighter parent: RescueWorker {
 		}
 	}
 
-	// Action dập lửa
 	action extinguish (Fire target) {
 		if (target != nil and water_supply > 0) {
 			target.intensity <- target.intensity - 20.0;
@@ -591,7 +629,7 @@ species Firefighter parent: RescueWorker {
 			if (target.intensity <= 0) {
 				ask floor_cell(target.location) {
 					is_fire        <- false;
-					is_fire_hazard <- false;
+					is_fire_hazard <- (smoke_density > 0.25);
 					do update_color;
 				}
 
@@ -604,6 +642,7 @@ species Firefighter parent: RescueWorker {
 
 	// Logic quyết định di chuyển & dập lửa
 	reflex main_decision {
+
 		do compute_utility;
 
 		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
@@ -673,9 +712,16 @@ species Firefighter parent: RescueWorker {
 
 	aspect default {
 		draw rectangle(1.2, 1.2) color: color border: #black;
-		// Trực quan hóa nhãn hành động trên đầu tác tử theo Mục 3.3 INTERFACE.md
+		point dir_target <- location + {cos(heading) * 1.3, sin(heading) * 1.3};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
+		Fire nearby_fire <- empty(Fire) ? nil : (Fire closest_to self);
+		if (nearby_fire != nil and (self distance_to nearby_fire) <= 1.5 and water_supply > 0) {
+			draw line([location, nearby_fire.location]) color: #deepskyblue width: 2.0;
+		}
+
 		if (current_action != "IDLE") {
-			draw current_action size: 1.2 color: #black at: location + {0, -1};
+			draw current_action size: 0.9 color: #black at: location + {0, -1.0};
 		}
 	}
 }
@@ -711,7 +757,7 @@ species Rescuer parent: RescueWorker {
 			list<Evacuee> nearby_evacuees <- Evacuee at_distance calm_radius where (not each.is_escaped);
 
 			if (!empty(nearby_evacuees)) {
-				// Trấn an những người đang ở gần (panic_level - 10.0, kẹp không âm theo Mục 8.5 & Ảnh 1, 2)
+				// Trấn an những người đang ở gần
 				ask nearby_evacuees {
 					self.panic_level <- max(0.0, self.panic_level - 10.0);
 				}
@@ -751,12 +797,14 @@ species Rescuer parent: RescueWorker {
 		}
 	}
 
-	// Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 	aspect default {
+		draw circle(calm_radius) color: rgb(52, 152, 219, 25) border: #cyan;
 		draw triangle(1.3) color: color border: #black;
-		// Trực quan hóa nhãn hành động trên đầu tác tử theo Mục 3.3 INTERFACE.md
+		point dir_target <- location + {cos(heading) * 1.3, sin(heading) * 1.3};
+		draw line([location, dir_target]) color: #black end_arrow: 0.35;
+
 		if (current_action != "IDLE") {
-			draw current_action size: 1.2 color: #black at: location + {0, -1};
+			draw current_action size: 0.9 color: #black at: location + {0, -1.0};
 		}
 	}
 
@@ -777,12 +825,12 @@ species Fire {
 				list<floor_cell> neighbor_cells <- current_cell.neighbors where (not each.is_wall and not each.is_fire and not each.is_outside);
 				if (!empty(neighbor_cells)) {
 					floor_cell target_cell <- one_of(neighbor_cells);
+					target_cell.is_fire <- true;
+					target_cell.is_fire_hazard <- true;
 					create Fire {
 						location <- target_cell.location;
 						intensity <- 50.0; // Lửa mới tạo có intensity = 50
 						ask target_cell {
-							is_fire <- true;
-							is_fire_hazard <- true;
 							do update_color;
 						}
 
@@ -813,7 +861,11 @@ species Fire {
 	}
 
 	aspect default {
-		draw circle(0.8) color: color;
+		float pulse <- sin(cycle * 30 + int(self) * 15);
+		float flame_size <- (0.65 + 0.15 * pulse) * (intensity / 100.0);
+		draw circle(flame_size * 1.35) color: rgb(231, 76, 60, 90);   // Quầng sáng đỏ tỏa nhiệt
+		draw circle(flame_size) color: rgb(230, 81, 0);               // Thân ngọn lửa cam rực rỡ
+		draw circle(flame_size * 0.45) color: rgb(255, 235, 59);      // Lõi nhiệt vàng sáng
 	}
 
 }
