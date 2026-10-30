@@ -648,7 +648,20 @@ species Firefighter parent: RescueWorker {
 					}
 				}
 			} 
-			// B. TRƯỜNG HỢP CÒN NƯỚC NHƯNG ĐÃ DẬP SẠCH LỬA
+			// B. TRƯỜNG HỢP ĐÃ DẬP SẠCH LỬA (empty(Fire))
+			else if (empty(Fire)) {
+				// Khi đã dập sạch toàn bộ lửa -> rút lui ra ngoài sân an toàn cạnh cửa thoát hiểm
+				if (my_cell = nil or not my_cell.is_outside) {
+					floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+					list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+					floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
+					if (safe_outside != nil) {
+						do goto target: safe_outside.location on: room_graph;
+					}
+				}
+				// Nếu đã ra ngoài sân rồi -> dừng lại an toàn ở sân, không đi lang thang vào trong
+			} 
+			// C. TRƯỜNG HỢP CÒN NƯỚC VÀ CÒN LỬA (tuần tra tìm lửa)
 			else {
 				list<floor_cell> wander_cells <- floor_cell where (each.is_floor and not each.is_wall and not each.is_fire);
 				if (!empty(wander_cells)) {
@@ -698,12 +711,23 @@ species Rescuer parent: RescueWorker {
 			list<Evacuee> nearby_evacuees <- Evacuee at_distance calm_radius where (not each.is_escaped);
 
 			if (!empty(nearby_evacuees)) {
-				// Trấn an những người đang ở gần (panic_level - 10.0, kẹp không âm theo Mục 8.5 & Ảnh 1, 2)
+				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+
+				// Trấn an và dẫn dắt người dân ở gần cùng di chuyển về phía cửa thoát hiểm né tường (từ từ theo room_graph, không dịch chuyển)
 				ask nearby_evacuees {
 					self.panic_level <- max(0.0, self.panic_level - 10.0);
+					if (safe_exit != nil) {
+						do goto target: safe_exit.location on: room_graph;
+					}
+					floor_cell c <- floor_cell(self.location);
+					if (c != nil and c.is_exit and not self.is_escaped) {
+						self.is_escaped <- true;
+						nb_escaped <- nb_escaped + 1;
+						write "[THOÁT HIỂM] " + self.name + " đã thoát an toàn cùng cứu hộ tại cycle " + cycle;
+						do die;
+					}
 				}
-				// Khi đã có người đi cùng -> dẫn họ di chuyển về phía lối thoát hiểm gần nhất
-				floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+				// Cứu hộ dẫn đường di chuyển về phía lối thoát hiểm gần nhất
 				if (safe_exit != nil) {
 					do goto target: safe_exit.location on: room_graph;
 				}
@@ -726,11 +750,14 @@ species Rescuer parent: RescueWorker {
 			}
 		} else {
 			// Khi không còn ai cần cứu -> rút lui ra ngoài sân an toàn, không đứng chắn cửa exit
-			floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-			list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
-			floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
-			if (safe_outside != nil) {
-				do goto target: safe_outside.location on: room_graph;
+			floor_cell my_cell <- floor_cell(location);
+			if (my_cell = nil or not my_cell.is_outside) {
+				floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+				list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+				floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
+				if (safe_outside != nil) {
+					do goto target: safe_outside.location on: room_graph;
+				}
 			}
 		}
 	}
