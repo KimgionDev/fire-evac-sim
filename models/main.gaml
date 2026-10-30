@@ -505,8 +505,8 @@ species Firefighter parent: RescueWorker {
 	float u_extinguish <- 0.0;
 	float u_move_fire  <- 0.0;
 	float u_wander     <- 0.0;
-	
-	// Biến đếm cycle tiếp nước ngoài sân 
+
+	// Biến đếm cycle tiếp nước ngoài sân
 	int refill_timer <- 0;
 
 	init {
