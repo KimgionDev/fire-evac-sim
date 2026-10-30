@@ -120,11 +120,16 @@ grid floor_cell width: grid_width height: grid_height {
 
 ```gaml
 species Evacuee skills: [moving] {
-    float stamina     <- 100.0;   // clamp >= 0
-    float panic_level <- 0.0;     // clamp 0..100
-    float speed       <- 1.0;     // 1.0 .. 1.5
-    float vision      <- 10.0;
-    bool  is_escaped  <- false;
+    float stamina         <- 100.0;   // clamp >= 0
+    float panic_level     <- 0.0;     // clamp 0..100
+    float speed           <- 1.0;     // 1.0 .. 1.5
+    float vision          <- 10.0;
+    bool  is_escaped      <- false;
+    string current_action <- "IDLE";  // FLEE_FIRE, EVACUATE, FOLLOW_LEADER, FLOCK
+    float u_evacuate      <- 0.0;
+    float u_flee          <- 0.0;
+    float u_follow        <- 0.0;
+    float u_flock         <- 0.0;
 }
 
 species RescueWorker skills: [moving] {
@@ -134,11 +139,19 @@ species RescueWorker skills: [moving] {
 }
 
 species Firefighter parent: RescueWorker {
-    float water_supply <- 100.0;  // clamp >= 0
+    float water_supply    <- 100.0;   // clamp >= 0
+    string current_action <- "WANDER"; // EXTINGUISH, MOVE_TO_FIRE, WANDER
+    float u_extinguish    <- 0.0;
+    float u_move_fire     <- 0.0;
+    float u_wander        <- 0.0;
+    int refill_timer      <- 0;       // Đếm số cycle tiếp nước ngoài sân
 }
 
 species Rescuer parent: RescueWorker {
-    float calm_radius <- 4.0;
+    float calm_radius     <- 4.0;
+    string current_action <- "WANDER"; // GUIDE, WANDER
+    float u_guide         <- 0.0;
+    float u_wander        <- 0.0;
 }
 
 species Fire {
@@ -150,8 +163,27 @@ species Fire {
 **Quy ước bắt buộc:**
 - `panic_level` luôn `clamp(panic_level, 0, 100)`.
 - `stamina` không âm, `<= 0` thì chết.
-- `water_supply` không âm, `<= 0` thì không được EXTINGUISH.
+- `water_supply` không âm, `<= 0` thì không được EXTINGUISH:
+  - Khi `water_supply <= 0`, Firefighter chuyển trạng thái `WANDER` với mục tiêu **rút lui ra ngoài sân (`is_outside`)**, **TUYỆT ĐỐI KHÔNG** dừng lại đứng chắn ở ô cửa thoát hiểm (`is_exit`) để tránh chặn đường `Evacuee`.
+  - **Cơ chế tiếp nước ngoài sân (Refill Water):**
+    + Khi Firefighter đã ra đến ô ngoài sân (`is_outside`), tạm dừng trừ `stamina` (an toàn, không hít khói).
+    + Sau khi ở ngoài sân đủ **20 cycle** tiếp nước từ xe cứu hỏa ngoài tòa nhà (`refill_timer >= 20`), `water_supply` được hồi phục đầy `100.0` và `refill_timer <- 0` để tiếp tục tiến vào tòa nhà dập lửa.
 - `is_escaped = true` ⇒ không tính là thương vong.
+
+### 3.3. Quy định hiển thị (`aspect default`)
+
+Để đồng bộ hiển thị và trực quan hóa trạng thái AI thời gian thực trên giao diện mô phỏng:
+- Mọi tác tử người (`Evacuee`, `Firefighter`, `Rescuer`) cần hiển thị nhãn hành động hiện tại trên đầu:
+  ```gaml
+  if (current_action != "IDLE") {
+      draw current_action size: 1.2 color: #black at: location + {0, -1};
+  }
+  ```
+- Màu sắc cơ bản theo quy ước:
+  - `Evacuee`: Đổi màu linh hoạt theo trạng thái (FLEE: đỏ, EVACUATE: xanh lá, FOLLOW: vàng, FLOCK: tím).
+  - `Firefighter`: `#yellow`, hình chữ nhật `rectangle(1.2, 1.2)`.
+  - `Rescuer`: `#cyan`, hình tam giác `triangle(1.3)`.
+  - `Fire`: Hình tròn/vuông chuyển từ đỏ sang cam theo intensity.
 
 ---
 
@@ -201,6 +233,8 @@ reflex stamina_loss
 
 ## 5. Tên action Utility & Tie-break
 
+> **Lưu ý:** `INTERFACE.md` quy định chuẩn tên action, thứ tự tie-break và biến dùng chung. Chi tiết công thức tính điểm và bảng ma trận utility của từng tác tử xem tại file **`docs/de-bai-do-an.md` (Chương 2)**.
+
 ### 5.1. Tên action logic
 
 | Tác tử | Action |
@@ -226,8 +260,13 @@ reflex stamina_loss
 | Rescuer | 1 | `is_outside = true AND is_wall = false` |
 | Fire | 2 | `is_kitchen = true AND is_wall = false` |
 
-**Lưu ý:**
+**Lưu ý & Cân bằng phân bổ:**
 - Evacuee KHÔNG spawn đè ô lửa.
+- **Phân bổ số lượng Evacuee theo diện tích phòng:**
+  - Khu làm việc chung (giữa tầng): ~20 người (khu vực đông đúc nhất).
+  - 4 Phòng họp (cạnh trên): ~12 người (~3 người mỗi phòng).
+  - Bếp/Pantry và Kho (cạnh dưới): ~8 người (bếp ~3 người, kho ~5 người).
+- **Mức `panic_level` ban đầu:** Gán tỷ lệ với khoảng cách tới bếp phát hỏa (người ở bếp xuất phát `panic = 40.0 - 50.0`, khu làm việc `panic = 10.0 - 20.0`, phòng họp xa lửa `panic = 0.0 - 5.0`).
 - Firefighter/Rescuer spawn ngoài tòa nhà, di chuyển vào trong.
 - Fire bùng phát ngay từ bước 0 tại bếp.
 
@@ -294,7 +333,7 @@ ask RescueWorker at_distance 1   { stamina -= 3.0; }
 ### 8.3. Lửa lan
 
 ```gaml
-if (is_active and flip(0.05)) {
+if (is_active and flip(0.022)) { // 2.2% mỗi cycle
     floor_cell neighbor <- one_of(
         floor_cell(self.location).neighbors
         where (not each.is_wall and not each.is_fire)
@@ -307,7 +346,12 @@ if (is_active and flip(0.05)) {
 }
 ```
 
-### 8.4. Firefighter dập lửa
+### 8.4. Firefighter dập lửa & tiếp cận an toàn
+
+- **Quy tắc dập lửa không xuyên tường:**
+  - Điều kiện dập lửa hợp lệ là khoảng cách $\le 1.5$ ô **VÀ** ô lửa phải là ô lân cận đi được (nằm cùng phòng / kết nối trực tiếp trên `room_graph`), không bị tường `is_wall` ngăn cách ở giữa.
+- **Quy tắc tiếp cận đám lửa an toàn:**
+  - Khi thực hiện `MOVE_TO_FIRE`, đích đến của `goto` phải là **ô sàn an toàn nằm kề cạnh ngọn lửa** (`neighbor where (not each.is_fire and not each.is_wall)`), không `goto` thẳng vào tâm ô đang cháy để tránh dính sát thương lửa không cần thiết.
 
 ```gaml
 action extinguish(Fire target) {
@@ -331,6 +375,25 @@ target.panic_level <- max(0.0, target.panic_level - 10.0);
 
 - **Thoát:** `floor_cell(location).is_exit == true` ⇒ `is_escaped = true`, `nb_escaped += 1`, `do die`.
 - **Chết:** `stamina <= 0 AND not is_escaped` ⇒ `nb_dead += 1`, `do die`.
+
+### 8.7. Evacuee: Bám theo cứu hộ & Gộp nhóm đám đông
+
+- **Đi theo Cứu hộ (`follow_leader`):**
+  - Người dân bám theo `RescueWorker` gần nhất trong tầm nhận biết.
+  - Khi cách xa Leader ($> 2.0$ ô): `do goto target: leader.location on: room_graph;`
+  - Khi đã đến sát Leader ($\le 2.0$ ô): cùng di chuyển theo hướng về lối thoát hiểm gần nhất (`floor_cell target_exit <- exit_cells closest_to self; do goto target: target_exit on: room_graph;`).
+  - *Lưu ý an toàn:* Khi lại gần ngọn lửa, điểm `FLEE_FIRE` (tối đa 130) ưu tiên cao hơn `FOLLOW_LEADER` (tối đa 110) nên người dân sẽ tự động né lửa dạt ra an toàn.
+
+- **Gộp nhóm & Nghẽn dòng người (`flock`):**
+  - Khi hoảng loạn cao (`panic_level > 50`) và có $\ge 3$ người dân xung quanh, người dân có tâm lý bầy đàn dồn lại thành cụm.
+  - Hướng di chuyển: Tính trọng tâm cụm người xung quanh (`point center <- mean(nearby_evacuees collect each.location);`) và di chuyển dồn về phía hành lang / lối thoát hiểm chung trên `room_graph`.
+  - **Cơ chế nghẽn dòng người (Crowd Congestion / Bottleneck):**
+    - Khi chen lấn đông đúc trong bán kính hẹp ($< 1.0$ ô), tốc độ di chuyển bị suy giảm tỷ lệ nghịch với số lượng người xung quanh:
+      ```gaml
+      int crowd_count <- length(Evacuee at_distance 1.0);
+      float speed_factor <- max(0.5, 1.0 - (crowd_count * 0.1)); // Giảm tối đa 50% tốc độ khi chen chúc
+      do goto target: target_point speed: speed * speed_factor on: room_graph;
+      ```
 
 ---
 
