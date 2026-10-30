@@ -665,6 +665,14 @@ species Rescuer parent: RescueWorker {
 		color <- #cyan;
 	}
 
+	// Ghi đè stamina_loss: Tạm dừng trừ stamina khi đã ra ngoài sân (is_outside)
+	reflex stamina_loss {
+		floor_cell my_cell <- floor_cell(location);
+		if (my_cell != nil and not my_cell.is_outside) {
+			stamina <- max(0.0, stamina - 0.05);
+		}
+	}
+
 	action compute_utility {
 		list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
 			if (!empty(target_evacuees)) {
@@ -707,10 +715,12 @@ species Rescuer parent: RescueWorker {
 				do guide(target);
 			}
 		} else {
-			// Khi không còn ai cần cứu -> đi ra cửa thoát hiểm
-			floor_cell safe_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-			if (safe_exit != nil) {
-				do goto target: safe_exit.location on: room_graph;
+			// Khi không còn ai cần cứu -> rút lui ra ngoài sân an toàn, không đứng chắn cửa exit
+			floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+			list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
+			floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
+			if (safe_outside != nil) {
+				do goto target: safe_outside.location on: room_graph;
 			}
 		}
 	}
@@ -718,6 +728,10 @@ species Rescuer parent: RescueWorker {
 	// Khi di chuyển, dùng: do goto target: xxx on: room_graph;
 	aspect default {
 		draw triangle(1.3) color: color border: #black;
+		// Trực quan hóa nhãn hành động trên đầu tác tử theo Mục 3.3 INTERFACE.md
+		if (current_action != "IDLE") {
+			draw current_action size: 1.2 color: #black at: location + {0, -1};
+		}
 	}
 
 }
