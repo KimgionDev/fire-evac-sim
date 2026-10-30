@@ -527,39 +527,32 @@ species Firefighter parent: RescueWorker {
 		u_move_fire  <- 0.0;
 		u_wander     <- 0.0;
 
-		// Ưu tiên ngọn lửa ở rìa ngoài còn ô sàn trống tiếp cận được
-		list<Fire> accessible_fires <- Fire where (
-			!empty(floor_cell(each.location).neighbors where (not each.is_fire and not each.is_wall))
-		);
-		Fire target_fire <- empty(accessible_fires) ? (empty(Fire) ? nil : (Fire closest_to self)) : (accessible_fires closest_to self);
+		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 
 		// 1. Khi hết nước hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước hoặc tuần tra)
-		if (water_supply <= 0.0 or target_fire = nil) {
+		if (water_supply <= 0.0 or nearest_fire = nil) {
 			u_wander <- 30.0;
 		} else {
-			float dist_fire <- self distance_to target_fire;
-			floor_cell my_cell <- floor_cell(self.location);
-			floor_cell fire_cell <- floor_cell(target_fire.location);
-			bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
+			float dist_fire <- self distance_to nearest_fire;
 
-			// EXTINGUISH: Khi ở ngay cạnh lửa (<= 1.5 ô), cùng ô hoặc ô kề không bị tường cản và còn nước
-			if (dist_fire <= 1.5 and can_reach_fire) {
+			// EXTINGUISH: Khi ở ngay cạnh lửa (<= 1.5 ô) và còn nước -> Ưu tiên dập ngay
+			if (dist_fire <= 1.5) {
 				u_extinguish <- u_extinguish + 70.0;
 				
-				if (target_fire.intensity > 50.0) {
+				if (nearest_fire.intensity > 50.0) {
 					u_extinguish <- u_extinguish + 30.0;
 				}
 				
-				if (nearest_exit != nil and (target_fire distance_to nearest_exit) <= 3.0) {
+				if (nearest_exit != nil and (nearest_fire distance_to nearest_exit) <= 3.0) {
 					u_extinguish <- u_extinguish + 40.0;
 				}
 			}
-			// MOVE_TO_FIRE: Khi còn nước và chưa tới gần (dist > 1.5 ô) -> Di chuyển thẳng tới tiếp cận ngọn lửa
+			// MOVE_TO_FIRE: Khi còn nước và chưa tới gần (dist > 1.5 ô) -> Di chuyển thẳng tới ngọn lửa
 			else {
 				u_move_fire <- u_move_fire + 50.0;
 				
-				if (target_fire.intensity > 50.0) {
+				if (nearest_fire.intensity > 50.0) {
 					u_move_fire <- u_move_fire + 20.0;
 				}
 			}
@@ -603,32 +596,16 @@ species Firefighter parent: RescueWorker {
 	reflex main_decision {
 		do compute_utility;
 
-		// Chọn ngọn lửa rìa ngoài gần nhất để dập theo trình tự
-		list<Fire> accessible_fires <- Fire where (
-			!empty(floor_cell(each.location).neighbors where (not each.is_fire and not each.is_wall))
-		);
-		Fire target_fire <- empty(accessible_fires) ? (empty(Fire) ? nil : (Fire closest_to self)) : (accessible_fires closest_to self);
+		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
 
 		if (current_action = "EXTINGUISH") {
-			if (target_fire != nil) {
-				floor_cell my_cell <- floor_cell(self.location);
-				floor_cell fire_cell <- floor_cell(target_fire.location);
-				bool can_reach_fire <- (my_cell = fire_cell) or (my_cell.neighbors contains fire_cell);
-				
-				if (self distance_to target_fire <= 1.5 and can_reach_fire) {
-					do extinguish(target_fire);
-				}
+			if (target_fire != nil and (self distance_to target_fire <= 1.5)) {
+				do extinguish(target_fire);
 			}
 		} else if (current_action = "MOVE_TO_FIRE") {
 			if (target_fire != nil) {
-				// Tiếp cận ô an toàn kề cạnh ngọn lửa trên room_graph, không bước trực tiếp vào tâm lửa
-				list<floor_cell> safe_neighbors <- floor_cell(target_fire.location).neighbors where (not each.is_fire and not each.is_wall);
-				if (!empty(safe_neighbors)) {
-					floor_cell best_safe_cell <- safe_neighbors closest_to self;
-					do goto target: best_safe_cell.location on: room_graph;
-				} else {
-					do goto target: target_fire.location on: room_graph;
-				}
+				// Di chuyển trên room_graph tiếp cận ngọn lửa gần nhất
+				do goto target: target_fire.location on: room_graph;
 			}
 		} else if (current_action = "WANDER") {
 			floor_cell my_cell <- floor_cell(location);
