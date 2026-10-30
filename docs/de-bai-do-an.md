@@ -99,7 +99,7 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 
 ### **2.2 Ma trận Utility cho Tác tử Firefighter**
 
-**Lưu ý:** Firefighter chỉ dập lửa, không dẫn đường. Có MOVE\_TO\_FIRE để di chuyển đến lửa khi ở xa.
+**Lưu ý:** Firefighter chỉ dập lửa, không dẫn đường. Định vị ổ cháy qua hệ thống báo cháy/khói của tòa nhà để lập tức tiến vào dập lửa. Có MOVE\_TO\_FIRE để di chuyển đến lửa khi ở xa.
 
 | Hành động | Yếu tố đánh giá | Điều kiện kích hoạt (GAML) | Điểm |
 | :---- | :---- | :---- | :---- |
@@ -107,10 +107,10 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 |  | Lửa cường độ cao (\> 50\) | fire.intensity \> 50 | 30 |
 |  | Lửa đang chặn lối thoát | fire blocks exit \== true | 40 |
 | **TỔNG TỐI ĐA** |  |  | **140** |
-| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tầm nhìn nhưng chưa đến gần (còn nước) | water\_supply \> 0 and closest\_to(fire) \<= vision and dist(fire) \> 1.5 | 50 |
+| **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tòa nhà nhưng chưa đến gần (còn nước) | water\_supply \> 0 and dist(fire) \> 1.5 | 50 |
 |  | Lửa cường độ cao (còn nước) | water\_supply \> 0 and fire.intensity \> 50 | 20 |
 | **TỔNG TỐI ĐA** |  |  | **70** |
-| **WANDER** (Tuần tra / Rút lui) | Không có lửa trong tầm nhìn HOẶC hết nước | closest\_to(fire) \== nil or water\_supply \<= 0 | 30 |
+| **WANDER** (Tuần tra / Rút lui) | Không còn lửa trong tòa nhà HOẶC hết nước | closest\_to(fire) \== nil or water\_supply \<= 0 | 30 |
 | **TỔNG TỐI ĐA** |  |  | **30** |
 
 * **Quy tắc di chuyển & an toàn:**
@@ -337,7 +337,7 @@ species Firefighter parent: RescueWorker {
             }  
               
             // MOVE\_TO\_FIRE: khi ở xa và còn nước
-            if (d \> 1.5 and d \< vision and water\_supply \> 0\) {  
+            if (d \> 1.5 and water\_supply \> 0\) {  
                 u\_move \<- u\_move \+ 50.0;  
                 if (nearest\_fire.intensity \> 50\) { u\_move \<- u\_move \+ 20.0; }  
             }  
