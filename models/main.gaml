@@ -459,7 +459,7 @@ species Evacuee skills: [moving] {
 	}
 
 	action follow_leader (RescueWorker leader) {
-			if (leader != nil) {
+		if (leader != nil) {
 	        float dist_to_leader <- self distance_to leader;
 	        
 	        // Khi cách xa Leader (> 2.0 ô): bám theo vị trí của Leader
