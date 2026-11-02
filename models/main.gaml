@@ -33,9 +33,33 @@ global {
 		// 2. Tạo lửa tại bếp và lực lượng cứu hộ bên ngoài
 		do setup_fire_and_rescuers;
 
-		// 3. Spawn Evacuee trong các phòng (không đè tường/lửa)
-		create Evacuee number: nb_evacuees {
-			location <- any_location_in(one_of(floor_cell where (each.is_room and not each.is_wall and not each.is_fire)));
+		// 3. Phân bổ spawn Evacuee theo diện tích phòng & khoảng cách tới bếp (Mục 6 INTERFACE.md)
+		// A. Khu làm việc chung ở giữa (20 người, panic vừa 10.0 - 20.0)
+		list<floor_cell> office_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 19 and each.grid_y <= 33));
+		create Evacuee number: 20 {
+		    location <- any_location_in(one_of(office_cells));
+		    panic_level <- rnd(10.0, 20.0);
+		}
+		
+		// B. 4 Phòng họp cạnh trên (12 người, xa lửa nhất, panic thấp 0.0 - 5.0)
+		list<floor_cell> meeting_cells <- floor_cell where (each.is_room and not each.is_wall and (each.grid_y >= 4 and each.grid_y <= 14));
+		create Evacuee number: 12 {
+		    location <- any_location_in(one_of(meeting_cells));
+		    panic_level <- rnd(0.0, 5.0);
+		}
+		
+		// C. Bếp / Pantry (3 người, sát nguồn lửa, panic cao 40.0 - 50.0)
+		list<floor_cell> kitchen_spawn <- floor_cell where (each.is_kitchen and not each.is_wall and not each.is_fire);
+		create Evacuee number: 3 {
+		    location <- any_location_in(one_of(kitchen_spawn));
+		    panic_level <- rnd(40.0, 50.0);
+		}
+		
+		// D. Kho / Nghỉ góc dưới phải (5 người, cự ly trung bình, panic 5.0 - 15.0)
+		list<floor_cell> storage_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 36 and each.grid_x >= 26));
+		create Evacuee number: 5 {
+		    location <- any_location_in(one_of(storage_cells));
+		    panic_level <- rnd(5.0, 15.0);
 		}
 
 	}
@@ -305,76 +329,59 @@ species Evacuee skills: [moving] {
 
 	action compute_utility {
 		u_evacuate <- 0.0;
-		u_flee <- 0.0;
-		u_follow <- 0.0;
-		u_flock <- 0.0;
-		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
-		list<RescueWorker> responders <- (Firefighter as list) + (Rescuer as list);
-		RescueWorker nearest_worker <- empty(responders) ? nil : (responders closest_to self);
-		int nearby_evacuees_count <- length(Evacuee at_distance 5.0);
+		u_flee     <- 0.0;
+		u_follow   <- 0.0;
+		u_flock    <- 0.0;
 
-		// 1. Điểm EVACUATE (Thoát hiểm)
-		// Chỉ kích hoạt khi phát hiện lối thoát trong tầm nhìn (< vision)
-		if (nearest_exit != nil and (self distance_to nearest_exit) < vision) {
-			float dist_exit <- self distance_to nearest_exit;
-			u_evacuate <- u_evacuate + 60.0; // Thấy lối thoát trong tầm nhìn
-			if (dist_exit <= 2.0) {
-				u_evacuate <- u_evacuate + 40.0; // Ở rất gần lối thoát
-			}
+		floor_cell nearest_exit       <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+		Fire nearest_fire             <- empty(Fire) ? nil : (Fire closest_to self);
+		list<RescueWorker> responders <- (Rescuer as list) + (Firefighter as list);
+		RescueWorker nearest_worker   <- empty(responders) ? nil : (responders closest_to self);
+		
+		floor_cell my_cell <- floor_cell(location);
+		bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
+		float dist_exit    <- (nearest_exit != nil) ? (self distance_to nearest_exit) : 999.0;
+		float dist_fire    <- (nearest_fire != nil) ? (self distance_to nearest_fire) : 999.0;
+		float dist_worker  <- (nearest_worker != nil) ? (self distance_to nearest_worker) : 999.0;
 
-			if (stamina < 20.0) {
-				u_evacuate <- u_evacuate + 40.0; // Ưu tiên khẩn cấp khi kiệt sức
-			}
+		// ĐIỀU KIỆN GẶP CỬA: Đã ra hành lang thấy cửa HOẶC ở cự ly sát cửa (<= 5 ô)
+		bool can_see_exit  <- (nearest_exit != nil) and (dist_exit <= 5.0 or (in_corridor and dist_exit <= vision));
+		floor_cell worker_cell <- (nearest_worker != nil) ? floor_cell(nearest_worker.location) : nil;
+		bool worker_inside     <- (worker_cell != nil and not worker_cell.is_outside);
 
+		// 1. FLEE_FIRE (Né lửa)
+		if (nearest_fire != nil and dist_fire <= vision) {
+			if (dist_fire <= 5.0) { u_flee <- u_flee + 50.0; }
+			if (dist_fire <= 2.0) { u_flee <- u_flee + 50.0; }
+			if (stamina < 40.0)   { u_flee <- u_flee + 30.0; }
 		}
 
-		// 2. Điểm FLEE_FIRE (Chạy né khói lửa)
-		// Chỉ kích hoạt khi có lửa trong tầm nhìn (<= vision)
-		if (nearest_fire != nil and (self distance_to nearest_fire) <= vision) {
-			float dist_fire <- self distance_to nearest_fire;
-			if (dist_fire <= 5.0) {
-				u_flee <- u_flee + 50.0;
-			}
-
-			if (dist_fire <= 2.0) {
-				u_flee <- u_flee + 50.0;
-			} // Nguy cấp
-			if (stamina < 40.0) {
-				u_flee <- u_flee + 30.0;
-			} // Thể lực thấp khi có lửa gần
+		// 2. EVACUATE (TUYỆT ĐỐI CHỈ KHI GẶP CỬA MỚI CÓ ĐIỂM!)
+		// Nếu CHƯA GẶP CỬA thì u_evacuate = 0.0, KHÔNG AI ĐƯỢC XANH LÁ!
+		if (can_see_exit) {
+			u_evacuate <- 100.0; // Khi gặp cửa: 100 điểm để chuyển sang màu xanh lá EVACUATE
+			if (stamina < 20.0) { u_evacuate <- u_evacuate + 40.0; }
 		}
 
-		// 3. Điểm FOLLOW_LEADER (Đi theo cứu hộ)
-		// ĐIỀU KIỆN TIÊN QUYẾT: Chỉ kích hoạt khi có RescueWorker trong bán kính 8 ô!
-		if (nearest_worker != nil and (self distance_to nearest_worker) <= 8.0) {
-			u_follow <- u_follow + 50.0;
-
-			// Nếu bản thân chưa thấy lối thoát trong tầm nhìn -> càng muốn bám theo cứu hộ (+30)
-			if (nearest_exit = nil or (self distance_to nearest_exit) >= vision) {
-				u_follow <- u_follow + 30.0;
-			}
-
-			// Nếu hoảng loạn mất phương hướng -> cần người dẫn đường (+30)
-			if (panic_level > 70.0) {
-				u_follow <- u_follow + 30.0;
-			}
-
+		// 3. FOLLOW_LEADER (Bám theo cứu hộ khi cứu hộ vào trong nhà)
+		if (worker_inside and dist_worker <= 8.0) {
+			u_follow <- 50.0;
+			if (!can_see_exit)      { u_follow <- u_follow + 30.0; }
+			if (panic_level > 70.0) { u_follow <- u_follow + 30.0; }
 		}
 
-		// 4. Điểm FLOCK (Gộp nhóm đông người)
-		if (nearby_evacuees_count >= 3) {
-			u_flock <- u_flock + 40.0;
+		// 4. FLOCK (Gộp nhóm - Bán kính chuẩn 5.0 ô theo Bảng 2.1 đề bài)
+		list<Evacuee> nearby_list <- Evacuee at_distance 5.0 where (each != self and not each.is_escaped);
+		int nearby_evacuees_count <- length(nearby_list);
+
+		if (!can_see_exit and nearby_evacuees_count >= 1) {
+			u_flock <- 60.0; // Luôn giữ màu tím FLOCK suốt từ trong phòng ra ngoài
 		}
 
-		if (nearby_evacuees_count >= 1 and panic_level > 50.0) {
-			u_flock <- u_flock + 20.0;
-		}
-
-		// BƯỚC D: So sánh và Tie-break (FLEE > EVACUATE > FOLLOW > FLOCK)
+		// BƯỚC SO SÁNH & TIE-BREAK (FLEE > EVACUATE > FOLLOW > FLOCK)
 		float max_score <- max([u_flee, u_evacuate, u_follow, u_flock]);
 		if (max_score <= 0.0) {
-			current_action <- "IDLE";
+			current_action <- "IDLE"; // Đứng một mình, chưa thấy cửa, chưa có cứu hộ: Ở YÊN
 		} else if (u_flee = max_score) {
 			current_action <- "FLEE_FIRE";
 		} else if (u_evacuate = max_score) {
@@ -383,9 +390,10 @@ species Evacuee skills: [moving] {
 			current_action <- "FOLLOW_LEADER";
 		} else {
 			current_action <- "FLOCK";
-		} }
-
-	action flee_from (Fire target) {
+		}
+	}	
+	
+	action flee_from (Fire target) {	
 		if (target != nil) {
 			// Tính điểm đối xứng ngược hướng với ngọn lửa
 			point flee_point <- self.location + (self.location - target.location);
@@ -404,64 +412,124 @@ species Evacuee skills: [moving] {
 	}
 }
 	action evacuate (floor_cell target_exit) {
-		if(target_exit != nil){
-			// Di chuyển theo đồ thị né tường về phía cửa thoát hiểm
-			do goto target: target_exit on: room_graph;
+		if (target_exit != nil) {
+			// Cơ chế nghẽn dòng người khi chen chúc tại cửa hẹp / cửa thoát hiểm
+			int crowd_count <- length(Evacuee at_distance 1.5 where (each != self and not each.is_escaped));
+			float speed_factor <- max(0.4, 1.0 - (crowd_count * 0.15)); // Giảm tốc độ rõ rệt khi chen lấn
+			
+			do goto target: target_exit speed: speed * speed_factor on: room_graph;
 		}
 	}
 
 	action follow_leader (RescueWorker leader) {
-		// TV2 cài đặt logic bám theo cứu hộ tại Tuần 4
+			if (leader != nil) {
+	        float dist_to_leader <- self distance_to leader;
+	        
+	        // Khi cách xa Leader (> 2.0 ô): bám theo vị trí của Leader
+	        if (dist_to_leader > 2.0) {
+	            do goto target: leader.location on: room_graph;
+	        } 
+	        // Khi đã đến sát Leader (<= 2.0 ô): cùng di chuyển theo hướng về lối thoát hiểm gần nhất
+	        else {
+	            floor_cell target_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+	            if (target_exit != nil) {
+	                do goto target: target_exit.location on: room_graph;
+	            }
+	        }
+    	}
 	}
 
 	action flock {
-		// TV2 cài đặt logic gộp nhóm tại Tuần 4
+		// Bán kính nhận diện bạn bè CHUẨN 5.0 Ô theo đề bài
+		list<Evacuee> nearby_evacuees <- Evacuee at_distance 5.0 where (each != self and not each.is_escaped);
+		
+		if (!empty(nearby_evacuees)) {
+			floor_cell my_cell <- floor_cell(location);
+			bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
+			floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+			
+			point target_point <- nil;
+
+			// Nếu ở trong phòng: Đi ra ô hành lang gần nhất
+			if (!in_corridor) {
+				list<floor_cell> corridor_cells <- floor_cell where (each.is_floor and not each.is_wall and each.grid_y >= 16 and each.grid_y <= 18);
+				floor_cell exit_to_corridor     <- empty(corridor_cells) ? nil : (corridor_cells closest_to self);
+				target_point <- (exit_to_corridor != nil) ? exit_to_corridor.location : self.location;
+			} 
+			// Nếu đã ở hành lang: Đi tới cửa thoát hiểm
+			else {
+				target_point <- (nearest_exit != nil) ? nearest_exit.location : self.location;
+			}
+
+			// ĐỒNG BỘ TỐC ĐỘ: Đi cùng vận tốc để luôn giữ khoảng cách <= 1.5 ô (không bao giờ vượt quá 5.0 ô)
+			float group_speed <- min(nearby_evacuees collect each.speed);
+			float sync_speed  <- min([speed, group_speed]);
+
+			// Cơ chế nghẽn dòng người (Bottleneck)
+			int crowd_count <- length(Evacuee at_distance 1.2 where (each != self and not each.is_escaped));
+			float speed_factor <- max(0.5, 1.0 - (crowd_count * 0.15));
+			
+			do goto target: target_point speed: sync_speed * speed_factor on: room_graph;
+		}
 	}
 
 	reflex main_decision {
-		// Chỉ giảm thể lực và tăng hoảng loạn khi trong tòa nhà CÒN LỬA / KHÓI
-		if (!empty(Fire)) {
-			stamina <- max(0.0, stamina - 0.1);
-			panic_level <- min(100.0, max(0.0, panic_level + 0.5));
-		} else {
-			// Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, khói tan, hoảng loạn hạ nhiệt dần
-			panic_level <- max(0.0, panic_level - 1.0);
-		}
-		
-		
-		//Kiem tra tu vong do kiet suc
-		if (stamina <= 0.0 and not is_escaped) {
-			nb_dead <- nb_dead + 1;
-			write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
-			do die;
-		}
-
-		do compute_utility;
-		
-		//thuc hien hanh dong di chuyen
-		if (current_action = "FLEE_FIRE") {
-			Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
-			if (nearest_fire != nil) {
-				do flee_from(nearest_fire);
-			}
-		} else if (current_action = "EVACUATE") {
-			floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
-			if (nearest_exit != nil) {
-				do evacuate(nearest_exit);
-			}
-		}
-		// TV2 sẽ bổ sung xử lý di chuyển cho FOLLOW_LEADER và FLOCK trong Tuần 4
-		
-		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
-		
-		// Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
-		floor_cell my_cell <- floor_cell(location);
-		if (my_cell != nil and my_cell.is_exit) {
-			is_escaped <- true;
-			nb_escaped <- nb_escaped + 1;
-			write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
-			do die;
-		}
+		// 1. Cân bằng suy giảm thể lực và độ nhạy hoảng loạn theo thời gian thực (Mục 8.1 & Tuần 4)
+	    if (!empty(Fire)) {
+	        stamina <- max(0.0, stamina - 0.1);
+	        
+	        // Cơ chế tăng panic cơ bản
+	        float panic_inc <- 0.5;
+	        Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+	        // Tăng độ nhạy hoảng loạn: khi lửa ở cự ly nguy hiểm (<= 3 ô), panic tăng nhanh hơn
+	        if (nearest_fire != nil and (self distance_to nearest_fire) <= 3.0) {
+	            panic_inc <- panic_inc + 1.0;
+	        }
+	        panic_level <- min(100.0, max(0.0, panic_level + panic_inc));
+	    } else {
+	        // Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, hoảng loạn hạ nhiệt dần
+	        panic_level <- max(0.0, panic_level - 1.0);
+	    }
+	    
+	    // Kiểm tra tử vong do kiệt sức
+	    if (stamina <= 0.0 and not is_escaped) {
+	        nb_dead <- nb_dead + 1;
+	        write "[TỬ VONG] " + name + " đã tử vong vì kiệt sức tại cycle " + cycle;
+	        do die;
+	    }
+	    // Tính điểm Utility
+	    do compute_utility;
+	    
+	    // 2. Thực thi hành vi di chuyển dựa trên kết quả ma trận tiện ích
+	    if (current_action = "FLEE_FIRE") {
+	        Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
+	        if (nearest_fire != nil) {
+	            do flee_from(nearest_fire);
+	        }
+	    } else if (current_action = "EVACUATE") {
+	        floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
+	        if (nearest_exit != nil) {
+	            do evacuate(nearest_exit);
+	        }
+	    } else if (current_action = "FOLLOW_LEADER") {
+	        // Ưu tiên Rescuer, nếu không có thì bám theo Firefighter
+	        list<RescueWorker> responders <- (Rescuer as list) + (Firefighter as list);
+	        RescueWorker leader <- empty(responders) ? nil : (responders closest_to self);
+	        if (leader != nil) {
+	            do follow_leader(leader);
+	        }
+	    } else if (current_action = "FLOCK") {
+	        do flock;
+	    }
+	    
+	    // Kiểm tra an toàn khi vừa chạm ô cửa thoát hiểm (Exit)
+	    floor_cell my_cell <- floor_cell(location);
+	    if (my_cell != nil and my_cell.is_exit) {
+	        is_escaped <- true;
+	        nb_escaped <- nb_escaped + 1;
+	        write "[THOÁT HIỂM] " + name + " đã thoát an toàn tại cycle " + cycle;
+	        do die;
+	    }
 	}
 
 	aspect default {
