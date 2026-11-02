@@ -410,7 +410,7 @@ species Evacuee skills: [moving] {
 
 		if (!can_see_exit) {
 			if (nearby_evacuees_count >= 3) { u_flock <- u_flock + 40.0; }
-			// Chỉ cộng điểm hoảng loạn khi không bị lửa đe dọa trong 5 ô để FLEE_FIRE ưu tiên né lửa
+			// Chỉ cộng điểm hoảng loạn khi không bị lửa đe dọa trong 5 ô để FLEE_FIRE ưu tiên né lửa (Review Leader & CodeRabbit)
 			if (nearby_evacuees_count >= 1 and panic_level > 50.0 and dist_fire > 5.0) {
 				u_flock <- u_flock + 20.0;
 			}
