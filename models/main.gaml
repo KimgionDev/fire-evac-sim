@@ -704,9 +704,9 @@ species Firefighter parent: RescueWorker {
 		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 
-		// 1. Khi hết nước hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước hoặc tuần tra)
-		if (water_supply <= 0.0 or nearest_fire = nil) {
-			u_wander <- 30.0;
+		// 1. Khi hết nước, kiệt sức/bị thương nguy kịch (stamina < 25.0) hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước / sơ cứu bảo toàn tính mạng)
+		if (water_supply <= 0.0 or stamina < 25.0 or nearest_fire = nil) {
+			u_wander <- 100.0;
 		} else {
 			float dist_fire <- self distance_to nearest_fire;
 
@@ -737,9 +737,9 @@ species Firefighter parent: RescueWorker {
 
 		if (max_score <= 0.0) {
 			current_action <- "WANDER";
-		} else if (u_extinguish = max_score and water_supply > 0.0) {
+		} else if (u_extinguish = max_score and water_supply > 0.0 and stamina >= 25.0) {
 			current_action <- "EXTINGUISH";
-		} else if (u_move_fire = max_score and water_supply > 0.0) {
+		} else if (u_move_fire = max_score and water_supply > 0.0 and stamina >= 25.0) {
 			current_action <- "MOVE_TO_FIRE";
 		} else {
 			current_action <- "WANDER";
@@ -789,16 +789,22 @@ species Firefighter parent: RescueWorker {
 		} else if (current_action = "WANDER") {
 			floor_cell my_cell <- floor_cell(location);
 
-			// A. TRƯỜNG HỢP HẾT NƯỚC (water_supply <= 0)
-			if (water_supply <= 0.0) {
+			// A. TRƯỜNG HỢP CẦN RÚT LUI: HẾT NƯỚC (water_supply <= 0) HOẶC BỊ THƯƠNG / KIỆT SỨC (stamina < 25.0)
+			if (water_supply <= 0.0 or stamina < 25.0) {
 				// Khi đã ra tới ngoài sân (is_outside)
 				if (my_cell != nil and my_cell.is_outside) {
-					refill_timer <- refill_timer + 1;
-					
-					// Đủ 20 cycle tiếp nước -> hồi phục 100% bình nước và quay lại làm nhiệm vụ
-					if (refill_timer >= 20) {
-						water_supply <- 100.0;
-						refill_timer <- 0;
+					// 1. Hồi phục thể lực ngoài không khí trong lành (sơ cứu tại chỗ)
+					if (stamina < 100.0) {
+						stamina <- min(100.0, stamina + 2.0);
+					}
+
+					// 2. Nếu hết nước -> tiếp nước đủ 20 cycle từ xe bồn
+					if (water_supply <= 0.0) {
+						refill_timer <- refill_timer + 1;
+						if (refill_timer >= 20) {
+							water_supply <- 100.0;
+							refill_timer <- 0;
+						}
 					}
 				} 
 				// Khi chưa ra tới sân -> di chuyển ra ô ngoài sân NGAY CẠNH CỬA THOÁT HIỂM gần nhất
@@ -885,27 +891,32 @@ species Rescuer parent: RescueWorker {
 		u_guide <- 0.0;
 		u_wander <- 0.0;
 
-		list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
-		if (!empty(target_evacuees)) {
-			// Điểm cơ bản khi có người cần hỗ trợ trong tòa nhà (Bảng 2.3 đề bài)
-			u_guide <- u_guide + 60.0;
-
-			Evacuee nearest_evacuee <- target_evacuees closest_to self;
-			if (nearest_evacuee != nil) {
-				// Cộng điểm ưu tiên trạng thái khi người dân hoảng loạn cao
-				if (nearest_evacuee.panic_level > 50.0) {
-					u_guide <- u_guide + 30.0;
-				}
-				if (nearest_evacuee.panic_level > 80.0) {
-					u_guide <- u_guide + 40.0;
-				}
-			}
+		// 1. Nếu kiệt sức / bị thương nguy kịch (stamina < 25.0) -> ưu tiên rút lui ra ngoài sân để bảo toàn mạng sống
+		if (stamina < 25.0) {
+			u_wander <- 100.0;
 		} else {
-			u_wander <- 30.0;
+			list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
+			if (!empty(target_evacuees)) {
+				// Điểm cơ bản khi có người cần hỗ trợ trong tòa nhà (Bảng 2.3 đề bài)
+				u_guide <- u_guide + 60.0;
+
+				Evacuee nearest_evacuee <- target_evacuees closest_to self;
+				if (nearest_evacuee != nil) {
+					// Cộng điểm ưu tiên trạng thái khi người dân hoảng loạn cao
+					if (nearest_evacuee.panic_level > 50.0) {
+						u_guide <- u_guide + 30.0;
+					}
+					if (nearest_evacuee.panic_level > 80.0) {
+						u_guide <- u_guide + 40.0;
+					}
+				}
+			} else {
+				u_wander <- 30.0;
+			}
 		}
 
 		// Phân giải hòa điểm Tie-break: GUIDE > WANDER
-		if (u_guide >= u_wander and u_guide > 0.0) {
+		if (u_guide >= u_wander and u_guide > 0.0 and stamina >= 25.0) {
 			current_action <- "GUIDE";
 		} else {
 			current_action <- "WANDER";
@@ -950,9 +961,14 @@ species Rescuer parent: RescueWorker {
 				do guide(target);
 			}
 		} else {
-			// Khi không còn ai cần cứu -> rút lui ra ngoài sân an toàn, không đứng chắn cửa exit
+			// WANDER: Khi không còn ai cần cứu HOẶC đang kiệt sức (stamina < 25.0) -> rút lui ra ngoài sân an toàn
 			floor_cell my_cell <- floor_cell(location);
-			if (my_cell = nil or not my_cell.is_outside) {
+			if (my_cell != nil and my_cell.is_outside) {
+				// Hồi phục thể lực ngoài không khí trong lành
+				if (stamina < 100.0) {
+					stamina <- min(100.0, stamina + 2.0);
+				}
+			} else {
 				floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 				list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
 				floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
