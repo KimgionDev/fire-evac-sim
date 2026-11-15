@@ -403,14 +403,14 @@ species Evacuee skills: [moving] {
 			if (stamina < 40.0)   { u_flee <- u_flee + 30.0; }
 		}
 
-		// 2. EVACUATE (Chuẩn hóa điểm theo 2 nấc khoảng cách theo Bảng 2.1 đề bài - Review của Leader)
+		// 2. EVACUATE (Chuẩn hóa điểm theo 2 nấc khoảng cách theo Bảng 2.1 đề bài - Review của Leader & CodeRabbit)
 		if (can_see_exit) {
 			u_evacuate <- u_evacuate + 60.0;
 			if (dist_exit <= 2.0) { u_evacuate <- u_evacuate + 40.0; }
 			if (stamina < 20.0)   { u_evacuate <- u_evacuate + 40.0; }
-		} else if (!in_corridor and panic_level >= 25.0) {
-			// Cơ chế phòng kín khi không có còi báo cháy: ngửi thấy mùi khói / bất an (panic >= 25)
-			// Thôi thúc nhân viên mở cửa phòng chạy ra hành lang chính để tìm lối thoát
+		} else if (panic_level >= 25.0) {
+			// Khi ngửi thấy khói / bất an (panic >= 25): Dù ở trong phòng hay đã ra hành lang,
+			// tiếp tục nhận điểm EVACUATE để sơ tán thẳng tới cửa thoát hiểm (Fix CodeRabbit: tránh đứng đơ giữa hành lang)
 			u_evacuate <- u_evacuate + 55.0;
 		}
 
@@ -645,6 +645,7 @@ species RescueWorker skills: [moving] {
 	float speed <- 1.2;
 	float vision <- 15.0;
 	rgb color <- #blue;
+	bool is_recovering <- false; // Trạng thái đang rút lui ra sân để hồi sức / tiếp nước (chống dao động ngưỡng của CodeRabbit)
 
 	reflex stamina_loss {
 		stamina <- max(0.0, stamina - 0.05);
@@ -704,8 +705,13 @@ species Firefighter parent: RescueWorker {
 		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 
-		// 1. Khi hết nước, kiệt sức/bị thương nguy kịch (stamina < 25.0) hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước / sơ cứu bảo toàn tính mạng)
-		if (water_supply <= 0.0 or stamina < 25.0 or nearest_fire = nil) {
+		// Kích hoạt trạng thái hồi phục khi cạn nước hoặc thể lực nguy kịch (< 25.0)
+		if (water_supply <= 0.0 or stamina < 25.0) {
+			is_recovering <- true;
+		}
+
+		// 1. Khi đang hồi phục hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước / sơ cứu ngoài sân)
+		if (is_recovering or nearest_fire = nil) {
 			u_wander <- 100.0;
 		} else {
 			float dist_fire <- self distance_to nearest_fire;
@@ -737,9 +743,9 @@ species Firefighter parent: RescueWorker {
 
 		if (max_score <= 0.0) {
 			current_action <- "WANDER";
-		} else if (u_extinguish = max_score and water_supply > 0.0 and stamina >= 25.0) {
+		} else if (u_extinguish = max_score and water_supply > 0.0 and not is_recovering) {
 			current_action <- "EXTINGUISH";
-		} else if (u_move_fire = max_score and water_supply > 0.0 and stamina >= 25.0) {
+		} else if (u_move_fire = max_score and water_supply > 0.0 and not is_recovering) {
 			current_action <- "MOVE_TO_FIRE";
 		} else {
 			current_action <- "WANDER";
@@ -789,8 +795,8 @@ species Firefighter parent: RescueWorker {
 		} else if (current_action = "WANDER") {
 			floor_cell my_cell <- floor_cell(location);
 
-			// A. TRƯỜNG HỢP CẦN RÚT LUI: HẾT NƯỚC (water_supply <= 0) HOẶC BỊ THƯƠNG / KIỆT SỨC (stamina < 25.0)
-			if (water_supply <= 0.0 or stamina < 25.0) {
+			// A. TRƯỜNG HỢP CẦN RÚT LUI: HẾT NƯỚC (water_supply <= 0) HOẶC BỊ THƯƠNG / KIỆT SỨC (is_recovering)
+			if (is_recovering or water_supply <= 0.0 or stamina < 25.0) {
 				// Khi đã ra tới ngoài sân (is_outside)
 				if (my_cell != nil and my_cell.is_outside) {
 					// 1. Hồi phục thể lực ngoài không khí trong lành (sơ cứu tại chỗ)
@@ -805,6 +811,11 @@ species Firefighter parent: RescueWorker {
 							water_supply <- 100.0;
 							refill_timer <- 0;
 						}
+					}
+
+					// 3. Khắc phục dao động ngưỡng (Review CodeRabbit): Chỉ kết thúc hồi phục khi stamina >= 80.0 và đã đầy nước
+					if (stamina >= 80.0 and water_supply > 0.0) {
+						is_recovering <- false;
 					}
 				} 
 				// Khi chưa ra tới sân -> di chuyển ra ô ngoài sân NGAY CẠNH CỬA THOÁT HIỂM gần nhất
@@ -891,8 +902,13 @@ species Rescuer parent: RescueWorker {
 		u_guide <- 0.0;
 		u_wander <- 0.0;
 
-		// 1. Nếu kiệt sức / bị thương nguy kịch (stamina < 25.0) -> ưu tiên rút lui ra ngoài sân để bảo toàn mạng sống
+		// Kích hoạt trạng thái hồi phục khi thể lực nguy kịch (< 25.0)
 		if (stamina < 25.0) {
+			is_recovering <- true;
+		}
+
+		// 1. Nếu đang trong trạng thái hồi phục -> ưu tiên rút lui ra ngoài sân để bảo toàn mạng sống
+		if (is_recovering) {
 			u_wander <- 100.0;
 		} else {
 			list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
@@ -916,7 +932,7 @@ species Rescuer parent: RescueWorker {
 		}
 
 		// Phân giải hòa điểm Tie-break: GUIDE > WANDER
-		if (u_guide >= u_wander and u_guide > 0.0 and stamina >= 25.0) {
+		if (u_guide >= u_wander and u_guide > 0.0 and not is_recovering) {
 			current_action <- "GUIDE";
 		} else {
 			current_action <- "WANDER";
@@ -961,12 +977,16 @@ species Rescuer parent: RescueWorker {
 				do guide(target);
 			}
 		} else {
-			// WANDER: Khi không còn ai cần cứu HOẶC đang kiệt sức (stamina < 25.0) -> rút lui ra ngoài sân an toàn
+			// WANDER: Khi không còn ai cần cứu HOẶC đang kiệt sức (is_recovering) -> rút lui ra ngoài sân an toàn
 			floor_cell my_cell <- floor_cell(location);
 			if (my_cell != nil and my_cell.is_outside) {
 				// Hồi phục thể lực ngoài không khí trong lành
 				if (stamina < 100.0) {
 					stamina <- min(100.0, stamina + 2.0);
+				}
+				// Khắc phục dao động ngưỡng (Review CodeRabbit): Chỉ kết thúc hồi phục khi stamina >= 80.0
+				if (stamina >= 80.0) {
+					is_recovering <- false;
 				}
 			} else {
 				floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
