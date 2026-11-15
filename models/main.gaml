@@ -33,30 +33,36 @@ global {
 		do setup_fire_and_rescuers;
 
 		// 3. Phân bổ spawn Evacuee theo diện tích phòng & khoảng cách tới bếp (Mục 6 INTERFACE.md)
-		// A. Khu làm việc chung ở giữa (20 người, panic vừa 10.0 - 20.0)
+		// Tính toán số lượng tác tử theo tỉ lệ tổng nb_evacuees (phục vụ test 50-100 tác tử Tuần 5)
+		int nb_office <- int(nb_evacuees * 0.50);
+		int nb_meeting <- int(nb_evacuees * 0.30);
+		int nb_kitchen <- max(1, int(nb_evacuees * 0.08));
+		int nb_storage <- max(1, nb_evacuees - nb_office - nb_meeting - nb_kitchen);
+
+		// A. Khu làm việc chung ở giữa (50% người, panic vừa 10.0 - 20.0)
 		list<floor_cell> office_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 19 and each.grid_y <= 33));
-		create Evacuee number: 20 {
+		create Evacuee number: nb_office {
 		    location <- any_location_in(one_of(office_cells));
 		    panic_level <- rnd(10.0, 20.0);
 		}
 		
-		// B. 4 Phòng họp cạnh trên (12 người, xa lửa nhất, panic thấp 0.0 - 5.0)
+		// B. 4 Phòng họp cạnh trên (30% người, xa lửa nhất, panic thấp 0.0 - 5.0)
 		list<floor_cell> meeting_cells <- floor_cell where (each.is_room and not each.is_wall and (each.grid_y >= 4 and each.grid_y <= 14));
-		create Evacuee number: 12 {
+		create Evacuee number: nb_meeting {
 		    location <- any_location_in(one_of(meeting_cells));
 		    panic_level <- rnd(0.0, 5.0);
 		}
 		
-		// C. Bếp / Pantry (3 người, sát nguồn lửa, panic cao 40.0 - 50.0)
+		// C. Bếp / Pantry (~8% người, sát nguồn lửa, panic cao 40.0 - 50.0)
 		list<floor_cell> kitchen_spawn <- floor_cell where (each.is_kitchen and not each.is_wall and not each.is_fire);
-		create Evacuee number: 3 {
+		create Evacuee number: nb_kitchen {
 		    location <- any_location_in(one_of(kitchen_spawn));
 		    panic_level <- rnd(40.0, 50.0);
 		}
 		
-		// D. Kho / Nghỉ góc dưới phải (5 người, cự ly trung bình, panic 5.0 - 15.0)
+		// D. Kho / Nghỉ góc dưới phải (phần còn lại, cự ly trung bình, panic 5.0 - 15.0)
 		list<floor_cell> storage_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 36 and each.grid_x >= 26));
-		create Evacuee number: 5 {
+		create Evacuee number: nb_storage {
 		    location <- any_location_in(one_of(storage_cells));
 		    panic_level <- rnd(5.0, 15.0);
 		}
@@ -816,7 +822,10 @@ species Firefighter parent: RescueWorker {
 // ============ RESCUER ============
 species Rescuer parent: RescueWorker {
 	float calm_radius <- 4.0;
-	string current_action <- "IDLE";
+	string current_action <- "WANDER";
+	float u_guide <- 0.0;
+	float u_wander <- 0.0;
+
 	init {
 		color <- #cyan;
 	}
@@ -830,11 +839,33 @@ species Rescuer parent: RescueWorker {
 	}
 
 	action compute_utility {
+		u_guide <- 0.0;
+		u_wander <- 0.0;
+
 		list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
-			if (!empty(target_evacuees)) {
-				current_action <- "GUIDE";
-			} else {
-				current_action <- "WANDER";
+		if (!empty(target_evacuees)) {
+			// Điểm cơ bản khi có người cần hỗ trợ trong tòa nhà (Bảng 2.3 đề bài)
+			u_guide <- u_guide + 60.0;
+
+			Evacuee nearest_evacuee <- target_evacuees closest_to self;
+			if (nearest_evacuee != nil) {
+				// Cộng điểm ưu tiên trạng thái khi người dân hoảng loạn cao
+				if (nearest_evacuee.panic_level > 50.0) {
+					u_guide <- u_guide + 30.0;
+				}
+				if (nearest_evacuee.panic_level > 80.0) {
+					u_guide <- u_guide + 40.0;
+				}
+			}
+		} else {
+			u_wander <- 30.0;
+		}
+
+		// Phân giải hòa điểm Tie-break: GUIDE > WANDER
+		if (u_guide >= u_wander and u_guide > 0.0) {
+			current_action <- "GUIDE";
+		} else {
+			current_action <- "WANDER";
 		}
 	}
 
@@ -903,9 +934,9 @@ species Fire {
 	bool is_active <- true;
 	rgb color <- #red;
 
-	// 1. Lan truyền lửa ngẫu nhiên
+	// 1. Lan truyền lửa ngẫu nhiên (Tốc độ cân bằng 2.2% / cycle theo Tuần 4 & INTERFACE.md)
 	reflex spread {
-		if (is_active and flip(0.02)) {
+		if (is_active and flip(0.022)) {
 			floor_cell current_cell <- floor_cell(location);
 			if (current_cell != nil) {
 			// Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
@@ -959,6 +990,12 @@ species Fire {
 
 // ============ EXPERIMENT ============
 experiment FireEvacuation type: gui {
+	// Cấu hình tham số mô phỏng (Hỗ trợ kiểm thử Stress-test 50-100 tác tử Tuần 5)
+	parameter "Số người sơ tán (Evacuees):" var: nb_evacuees min: 20 max: 100 step: 10 category: "Cấu hình Tác tử";
+	parameter "Số lính cứu hỏa (Firefighters):" var: nb_firefighters min: 1 max: 5 step: 1 category: "Cấu hình Tác tử";
+	parameter "Số nhân viên cứu nạn (Rescuers):" var: nb_rescuers min: 1 max: 4 step: 1 category: "Cấu hình Tác tử";
+	parameter "Số ổ lửa ban đầu (Fires):" var: nb_initial_fires min: 1 max: 5 step: 1 category: "Môi trường";
+
 	output {
 		display map {
 			grid floor_cell;
