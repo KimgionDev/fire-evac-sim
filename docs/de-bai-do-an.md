@@ -110,14 +110,14 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 | **MOVE\_TO\_FIRE** (Tiến đến lửa) | Có lửa trong tòa nhà nhưng chưa đến gần (còn nước) | water\_supply \> 0 and dist(fire) \> 1.5 | 50 |
 |  | Lửa cường độ cao (còn nước) | water\_supply \> 0 and fire.intensity \> 50 | 20 |
 | **TỔNG TỐI ĐA** |  |  | **70** |
-| **WANDER** (Tuần tra / Rút lui) | Không còn lửa trong tòa nhà HOẶC hết nước | closest\_to(fire) \== nil or water\_supply \<= 0 | 30 |
-| **TỔNG TỐI ĐA** |  |  | **30** |
+| **WANDER** (Tuần tra / Rút lui) | Không còn lửa trong tòa nhà HOẶC hết nước HOẶC thể lực kiệt sức/bị thương nguy kịch (stamina < 25.0) | closest\_to(fire) \== nil or water\_supply \<= 0 or stamina < 25.0 | 100 |
+| **TỔNG TỐI ĐA** |  |  | **100** |
 
 * **Quy tắc di chuyển & an toàn:**
   - **EXTINGUISH:** Khoảng cách $\le 1.5$ ô và phải cùng phòng / nối trực tiếp trên `room_graph` (không dập lửa xuyên tường).
   - **MOVE_TO_FIRE:** Di chuyển tới ô an toàn kề cạnh ngọn lửa (`neighbor where (not each.is_fire and not each.is_wall)`), không dẫm vào ô lửa.
-  - **WANDER khi hết nước:** Rút lui ra ngoài sân (`is_outside`), tuyệt đối không đứng dừng lại ở ô cửa thoát hiểm (`is_exit`) cản trở người dân.
-  - **Cơ chế tiếp nước ngoài sân (Refill):** Khi đã ra đến ngoài sân (`is_outside`), tạm dừng trừ `stamina`; sau khi ở ngoài sân đủ **20 cycle** tiếp nước từ xe cứu hỏa ngoài tòa nhà, `water_supply` được hồi phục đầy 100.0 để tiếp tục quay lại dập lửa.
+  - **WANDER khi hết nước hoặc kiệt sức:** Rút lui ra ngoài sân (`is_outside`), tuyệt đối không đứng dừng lại ở ô cửa thoát hiểm (`is_exit`) cản trở người dân.
+  - **Cơ chế tiếp nước & hồi phục ngoài sân (Refill & Recovery):** Khi đã ra đến ngoài sân (`is_outside`), tạm dừng trừ `stamina`; được sơ cứu hồi phục `+2.0 stamina/cycle` và nạp đầy `100.0` nước sau **20 cycle**. Sử dụng biến cờ `is_recovering`, chỉ quay lại tòa nhà khi `stamina >= 80.0` và đã đầy nước (khắc phục hiện tượng dao động ngưỡng / chattering).
 
 ### **2.3 Ma trận Utility cho Tác tử Rescuer**
 
@@ -165,7 +165,7 @@ Trong các sự cố hỏa hoạn tại văn phòng, trường học, tòa nhà,
 | **Tuần 2** | Chuyển động & Lan truyền | • Rải vị trí lối thoát hiểm. • Xử lý né tường cho các tác tử. • Vẽ màu grid theo trạng thái (sàn, tường, lửa). | • Cài đặt logic tính utility cho Evacuee. • Test giảm stamina theo thời gian. • Test logic chết khi stamina \<= 0\. | • Cài đặt lan truyền lửa ngẫu nhiên. • Cài đặt Firefighter MOVE\_TO\_FIRE \+ EXTINGUISH. • Cài đặt Fire gây sát thương. |
 | **Tuần 3** | Tương tác Lõi P1 | • Vẽ Chart theo dõi số người thoát, số thương vong, số người hoảng loạn. | • Cài đặt logic FLEE\_FIRE (né lửa) và EVACUATE (tìm cửa thoát). • Cài đặt logic thoát thành công khi chạm exit. • Áp dụng hình phạt và ưu tiên. | • Cài đặt Rescuer GUIDE (dẫn Evacuee về exit). • Cài đặt logic trấn an panic\_level. |
 | **Tuần 4** | Tương tác Lõi P2 | • Tối ưu hiển thị, màu sắc theo mức hoảng loạn.<br>• Hiển thị đường đi hoặc hướng di chuyển. | • Cài đặt logic FOLLOW\_LEADER (bám theo cứu hộ, khi sát bên thì cùng hướng về exit).<br>• Cài đặt logic FLOCK (gộp nhóm dồn về hành lang, giảm tốc độ khi chen lấn đông người).<br>• Cân bằng chỉ số spawn trong phòng (phân bổ số lượng theo diện tích phòng và gán panic\_level ban đầu theo khoảng cách tới bếp). | • Cân bằng số lượng Firefighter (2) và Rescuer (1).<br>• Cài đặt logic Firefighter hết nước: rút lui ra ngoài sân `is_outside` (không đứng chắn `is_exit`), cơ chế nạp lại nước đầy 100.0 sau 20 cycle ngoài sân và tạm dừng trừ stamina.<br>• Cân bằng tốc độ lan lửa (điều chỉnh xác suất lan khoảng 2.2% / cycle). |
-| **Tuần 5** | Hoàn thiện & Slide | • Kiểm thử 50–100 tác tử. • Chụp ảnh mô phỏng & biểu đồ. • Ghép Slide tổng hợp phần môi trường. | • Lập bảng Utility hoàn chỉnh cho Evacuee. • Tinh chỉnh điểm phạt và ưu tiên. • Ghép Slide phần Evacuee. | • Lập bảng Utility hoàn chỉnh cho Firefighter & Rescuer. • Cân bằng chỉ số sinh tồn. • Tổng duyệt code & Slide phần cứu hộ \+ lửa. |
+| **Tuần 5** | Hoàn thiện & Demo trực tiếp (Không làm slide) | • Kiểm thử Stress-test 50–200 tác tử; thêm tham số điều khiển UI (`nb_evacuees`, `rescue_dispatch_delay`, `fire_spread_rate`). • Soạn kịch bản thuyết trình và điều phối buổi báo cáo demo. | • Hoàn thiện ma trận Utility cho Evacuee (FLEE > EVACUATE > FOLLOW > FLOCK). • Cơ chế phòng kín & hành lang (`panic >= 25`). • Giới hạn người dân chỉ bám theo Rescuer. | • Hoàn thiện Utility cho Firefighter & Rescuer. • Cơ chế rút lui khi hết nước hoặc stamina < 25, hồi phục ngoài sân tới stamina >= 80 (chống chattering). • Hệ thống khói động khuếch tán gradient. |
 
 ## **CHƯƠNG 4: HƯỚNG DẪN KHUNG CODE CẤU TRÚC GAML MẪU**
 

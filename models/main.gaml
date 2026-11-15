@@ -16,6 +16,8 @@ global {
 	int nb_firefighters <- 2;
 	int nb_rescuers <- 1;
 	int nb_initial_fires <- 2;
+	float fire_spread_rate <- 0.05; // Tỉ lệ lan lửa mỗi cycle (mặc định 5%)
+	int rescue_dispatch_delay <- 0; // Độ trễ phản ứng cứu hộ (số cycle chờ lệnh điều động)
 
 	// Chỉ số toàn cục cho chart
 	int nb_escaped <- 0;
@@ -33,30 +35,36 @@ global {
 		do setup_fire_and_rescuers;
 
 		// 3. Phân bổ spawn Evacuee theo diện tích phòng & khoảng cách tới bếp (Mục 6 INTERFACE.md)
-		// A. Khu làm việc chung ở giữa (20 người, panic vừa 10.0 - 20.0)
+		// Tính toán số lượng tác tử theo tỉ lệ tổng nb_evacuees (phục vụ test 50-100 tác tử Tuần 5)
+		int nb_office <- int(nb_evacuees * 0.50);
+		int nb_meeting <- int(nb_evacuees * 0.30);
+		int nb_kitchen <- max(1, int(nb_evacuees * 0.08));
+		int nb_storage <- max(1, nb_evacuees - nb_office - nb_meeting - nb_kitchen);
+
+		// A. Khu làm việc chung ở giữa (50% người, panic vừa 10.0 - 20.0)
 		list<floor_cell> office_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 19 and each.grid_y <= 33));
-		create Evacuee number: 20 {
+		create Evacuee number: nb_office {
 		    location <- any_location_in(one_of(office_cells));
 		    panic_level <- rnd(10.0, 20.0);
 		}
 		
-		// B. 4 Phòng họp cạnh trên (12 người, xa lửa nhất, panic thấp 0.0 - 5.0)
+		// B. 4 Phòng họp cạnh trên (30% người, xa lửa nhất, panic thấp 0.0 - 5.0)
 		list<floor_cell> meeting_cells <- floor_cell where (each.is_room and not each.is_wall and (each.grid_y >= 4 and each.grid_y <= 14));
-		create Evacuee number: 12 {
+		create Evacuee number: nb_meeting {
 		    location <- any_location_in(one_of(meeting_cells));
 		    panic_level <- rnd(0.0, 5.0);
 		}
 		
-		// C. Bếp / Pantry (3 người, sát nguồn lửa, panic cao 40.0 - 50.0)
+		// C. Bếp / Pantry (~8% người, sát nguồn lửa, panic cao 40.0 - 50.0)
 		list<floor_cell> kitchen_spawn <- floor_cell where (each.is_kitchen and not each.is_wall and not each.is_fire);
-		create Evacuee number: 3 {
+		create Evacuee number: nb_kitchen {
 		    location <- any_location_in(one_of(kitchen_spawn));
 		    panic_level <- rnd(40.0, 50.0);
 		}
 		
-		// D. Kho / Nghỉ góc dưới phải (5 người, cự ly trung bình, panic 5.0 - 15.0)
+		// D. Kho / Nghỉ góc dưới phải (phần còn lại, cự ly trung bình, panic 5.0 - 15.0)
 		list<floor_cell> storage_cells <- floor_cell where (each.is_room and not each.is_kitchen and not each.is_wall and (each.grid_y >= 36 and each.grid_x >= 26));
-		create Evacuee number: 5 {
+		create Evacuee number: nb_storage {
 		    location <- any_location_in(one_of(storage_cells));
 		    panic_level <- rnd(5.0, 15.0);
 		}
@@ -285,33 +293,38 @@ global {
 		nb_panic <- Evacuee count (each.panic_level > 70.0);
 	}
 
-	reflex update_smoke when: (every(2 #cycle)) {
-		// Khói phát tán từ các ổ lửa đang hoạt động
+	reflex update_smoke when: (every(1 #cycle)) {
+		// 1. Nguồn sinh khói từ các ổ lửa đang hoạt động
 		ask Fire where (each.is_active) {
 			floor_cell fc <- floor_cell(location);
 			if (fc != nil) {
 				fc.smoke_density <- 1.0;
 				fc.is_fire_hazard <- true;
-				// Lan tỏa sang các ô sàn lân cận đi được
-				list<floor_cell> safe_neighbors <- fc.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
-				ask safe_neighbors {
-					if (not self.is_fire) {
-						self.smoke_density <- min(0.85, self.smoke_density + 0.35);
-						if (self.smoke_density > 0.25) {
-							self.is_fire_hazard <- true;
-						}
-						do update_color;
-					}
-				}
 				ask fc {
-				    do update_color;
+					do update_color;
 				}
 			}
 		}
 
-		// Khói tiêu tán dần ở những ô không có lửa
+		// 2. Khuếch tán khói lan truyền nhanh (Smoke Diffusion): Khói cuộn sang các ô lân cận theo gradient nồng độ
+		list<floor_cell> smoky_cells <- floor_cell where (each.smoke_density > 0.1 and not each.is_outside);
+		ask smoky_cells {
+			float transfer <- self.smoke_density * 0.45;
+			list<floor_cell> safe_neighbors <- self.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
+			ask safe_neighbors {
+				if (self.smoke_density < myself.smoke_density) {
+					self.smoke_density <- min(0.85, self.smoke_density + transfer * 0.5);
+					if (self.smoke_density > 0.25) {
+						self.is_fire_hazard <- true;
+					}
+					do update_color;
+				}
+			}
+		}
+
+		// 3. Khói tiêu tán dần ở những ô không có lửa (đặc biệt khi đám cháy đã bị dập tắt)
 		ask floor_cell where (each.smoke_density > 0.0 and not each.is_fire) {
-			self.smoke_density <- max(0.0, self.smoke_density - 0.05);
+			self.smoke_density <- max(0.0, self.smoke_density - 0.015);
 			self.is_fire_hazard <- (self.smoke_density > 0.25);
 			do update_color;
 		}
@@ -369,9 +382,9 @@ species Evacuee skills: [moving] {
 		floor_cell nearest_exit       <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 		Fire nearest_fire             <- empty(Fire) ? nil : (Fire closest_to self);
 		
-		// Lọc chỉ những cứu hộ ĐÃ VÀO TRONG TÒA NHÀ trước khi chọn nearest_worker (Review của Leader)
-		list<RescueWorker> inside_responders <- ((Rescuer as list) + (Firefighter as list)) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
-		RescueWorker nearest_worker   <- empty(inside_responders) ? nil : (inside_responders closest_to self);
+		// Người dân chỉ bám theo Nhân viên Cứu nạn (Rescuer) ĐÃ VÀO TRONG TÒA NHÀ (Tuyệt đối không bám Lính cứu hỏa vì họ đang tiến vào tâm lửa)
+		list<Rescuer> inside_rescuers <- (Rescuer as list) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
+		Rescuer nearest_worker        <- empty(inside_rescuers) ? nil : (inside_rescuers closest_to self);
 		
 		floor_cell my_cell <- floor_cell(location);
 		bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
@@ -390,11 +403,15 @@ species Evacuee skills: [moving] {
 			if (stamina < 40.0)   { u_flee <- u_flee + 30.0; }
 		}
 
-		// 2. EVACUATE (Chuẩn hóa điểm theo 2 nấc khoảng cách theo Bảng 2.1 đề bài - Review của Leader)
+		// 2. EVACUATE (Chuẩn hóa điểm theo 2 nấc khoảng cách theo Bảng 2.1 đề bài - Review của Leader & CodeRabbit)
 		if (can_see_exit) {
 			u_evacuate <- u_evacuate + 60.0;
 			if (dist_exit <= 2.0) { u_evacuate <- u_evacuate + 40.0; }
 			if (stamina < 20.0)   { u_evacuate <- u_evacuate + 40.0; }
+		} else if (panic_level >= 25.0) {
+			// Khi ngửi thấy khói / bất an (panic >= 25): Dù ở trong phòng hay đã ra hành lang,
+			// tiếp tục nhận điểm EVACUATE để sơ tán thẳng tới cửa thoát hiểm (Fix CodeRabbit: tránh đứng đơ giữa hành lang)
+			u_evacuate <- u_evacuate + 55.0;
 		}
 
 		// 3. FOLLOW_LEADER (Bám theo cứu hộ khi cứu hộ vào trong nhà)
@@ -449,7 +466,17 @@ species Evacuee skills: [moving] {
 	}
 }
 	action evacuate (floor_cell target_exit) {
-		if (target_exit != nil) {
+		floor_cell my_cell <- floor_cell(location);
+		bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
+
+		// Nếu còn ở trong phòng kín và chưa thấy cửa thoát hiểm: Di chuyển ra ô hành lang gần nhất
+		if (!in_corridor and (target_exit = nil or (self distance_to target_exit) >= vision)) {
+			list<floor_cell> corridor_cells <- floor_cell where (each.is_floor and not each.is_wall and each.grid_y >= 16 and each.grid_y <= 18);
+			floor_cell exit_to_corridor     <- empty(corridor_cells) ? nil : (corridor_cells closest_to self);
+			if (exit_to_corridor != nil) {
+				do goto target: exit_to_corridor.location on: room_graph;
+			}
+		} else if (target_exit != nil) {
 			// Cơ chế nghẽn dòng người khi chen chúc tại cửa hẹp / cửa thoát hiểm
 			int crowd_count <- length(Evacuee at_distance 1.5 where (each != self and not each.is_escaped));
 			float speed_factor <- max(0.4, 1.0 - (crowd_count * 0.15)); // Giảm tốc độ rõ rệt khi chen lấn
@@ -529,6 +556,11 @@ species Evacuee skills: [moving] {
 	        if (nearest_fire != nil and (self distance_to nearest_fire) <= 3.0) {
 	            panic_inc <- panic_inc + 1.0;
 	        }
+	        // Nhận biết khói: nếu ô đang đứng có khói lan tới -> ngửi thấy khói làm tăng độ bất an
+	        floor_cell my_fc <- floor_cell(location);
+	        if (my_fc != nil and my_fc.smoke_density > 0.05) {
+	            panic_inc <- panic_inc + 0.5;
+	        }
 	        panic_level <- min(100.0, max(0.0, panic_level + panic_inc));
 	    } else {
 	        // Khi lửa đã dập tắt hoàn toàn -> môi trường an toàn, hoảng loạn hạ nhiệt dần
@@ -556,9 +588,9 @@ species Evacuee skills: [moving] {
 	            do evacuate(nearest_exit);
 	        }
 	    } else if (current_action = "FOLLOW_LEADER") {
-	        // Ưu tiên Rescuer, nếu không có thì bám theo Firefighter
-	        list<RescueWorker> responders <- (Rescuer as list) + (Firefighter as list);
-	        RescueWorker leader <- empty(responders) ? nil : (responders closest_to self);
+	        // Chỉ bám theo Nhân viên Cứu nạn (Rescuer) đã vào bên trong tòa nhà
+	        list<Rescuer> inside_rescuers <- (Rescuer as list) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
+	        Rescuer leader <- empty(inside_rescuers) ? nil : (inside_rescuers closest_to self);
 	        if (leader != nil) {
 	            do follow_leader(leader);
 	        }
@@ -613,6 +645,7 @@ species RescueWorker skills: [moving] {
 	float speed <- 1.2;
 	float vision <- 15.0;
 	rgb color <- #blue;
+	bool is_recovering <- false; // Trạng thái đang rút lui ra sân để hồi sức / tiếp nước (chống dao động ngưỡng của CodeRabbit)
 
 	reflex stamina_loss {
 		stamina <- max(0.0, stamina - 0.05);
@@ -659,6 +692,12 @@ species Firefighter parent: RescueWorker {
 
 	// Tính toán điểm tiện ích (Utility)
 	action compute_utility {
+		// Kiểm tra thời gian trễ phản ứng cứu hộ (Dispatch Delay)
+		if (cycle < rescue_dispatch_delay) {
+			current_action <- "WAITING";
+			return;
+		}
+
 		u_extinguish <- 0.0;
 		u_move_fire  <- 0.0;
 		u_wander     <- 0.0;
@@ -666,9 +705,14 @@ species Firefighter parent: RescueWorker {
 		Fire nearest_fire <- empty(Fire) ? nil : (Fire closest_to self);
 		floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 
-		// 1. Khi hết nước hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước hoặc tuần tra)
-		if (water_supply <= 0.0 or nearest_fire = nil) {
-			u_wander <- 30.0;
+		// Kích hoạt trạng thái hồi phục khi cạn nước hoặc thể lực nguy kịch (< 25.0)
+		if (water_supply <= 0.0 or stamina < 25.0) {
+			is_recovering <- true;
+		}
+
+		// 1. Khi đang hồi phục hoặc đã dập sạch toàn bộ lửa -> WANDER (rút lui nạp nước / sơ cứu ngoài sân)
+		if (is_recovering or nearest_fire = nil) {
+			u_wander <- 100.0;
 		} else {
 			float dist_fire <- self distance_to nearest_fire;
 
@@ -699,9 +743,9 @@ species Firefighter parent: RescueWorker {
 
 		if (max_score <= 0.0) {
 			current_action <- "WANDER";
-		} else if (u_extinguish = max_score and water_supply > 0.0) {
+		} else if (u_extinguish = max_score and water_supply > 0.0 and not is_recovering) {
 			current_action <- "EXTINGUISH";
-		} else if (u_move_fire = max_score and water_supply > 0.0) {
+		} else if (u_move_fire = max_score and water_supply > 0.0 and not is_recovering) {
 			current_action <- "MOVE_TO_FIRE";
 		} else {
 			current_action <- "WANDER";
@@ -732,6 +776,11 @@ species Firefighter parent: RescueWorker {
 
 		do compute_utility;
 
+		if (current_action = "WAITING") {
+			// Đang chờ lệnh điều động ngoài sân
+			return;
+		}
+
 		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
 
 		if (current_action = "EXTINGUISH") {
@@ -746,16 +795,27 @@ species Firefighter parent: RescueWorker {
 		} else if (current_action = "WANDER") {
 			floor_cell my_cell <- floor_cell(location);
 
-			// A. TRƯỜNG HỢP HẾT NƯỚC (water_supply <= 0)
-			if (water_supply <= 0.0) {
+			// A. TRƯỜNG HỢP CẦN RÚT LUI: HẾT NƯỚC (water_supply <= 0) HOẶC BỊ THƯƠNG / KIỆT SỨC (is_recovering)
+			if (is_recovering or water_supply <= 0.0 or stamina < 25.0) {
 				// Khi đã ra tới ngoài sân (is_outside)
 				if (my_cell != nil and my_cell.is_outside) {
-					refill_timer <- refill_timer + 1;
-					
-					// Đủ 20 cycle tiếp nước -> hồi phục 100% bình nước và quay lại làm nhiệm vụ
-					if (refill_timer >= 20) {
-						water_supply <- 100.0;
-						refill_timer <- 0;
+					// 1. Hồi phục thể lực ngoài không khí trong lành (sơ cứu tại chỗ)
+					if (stamina < 100.0) {
+						stamina <- min(100.0, stamina + 2.0);
+					}
+
+					// 2. Nếu hết nước -> tiếp nước đủ 20 cycle từ xe bồn
+					if (water_supply <= 0.0) {
+						refill_timer <- refill_timer + 1;
+						if (refill_timer >= 20) {
+							water_supply <- 100.0;
+							refill_timer <- 0;
+						}
+					}
+
+					// 3. Khắc phục dao động ngưỡng (Review CodeRabbit): Chỉ kết thúc hồi phục khi stamina >= 80.0 và đã đầy nước
+					if (stamina >= 80.0 and water_supply > 0.0) {
+						is_recovering <- false;
 					}
 				} 
 				// Khi chưa ra tới sân -> di chuyển ra ô ngoài sân NGAY CẠNH CỬA THOÁT HIỂM gần nhất
@@ -816,7 +876,10 @@ species Firefighter parent: RescueWorker {
 // ============ RESCUER ============
 species Rescuer parent: RescueWorker {
 	float calm_radius <- 4.0;
-	string current_action <- "IDLE";
+	string current_action <- "WANDER";
+	float u_guide <- 0.0;
+	float u_wander <- 0.0;
+
 	init {
 		color <- #cyan;
 	}
@@ -830,11 +893,49 @@ species Rescuer parent: RescueWorker {
 	}
 
 	action compute_utility {
-		list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
+		// Kiểm tra thời gian trễ phản ứng cứu hộ (Dispatch Delay)
+		if (cycle < rescue_dispatch_delay) {
+			current_action <- "WAITING";
+			return;
+		}
+
+		u_guide <- 0.0;
+		u_wander <- 0.0;
+
+		// Kích hoạt trạng thái hồi phục khi thể lực nguy kịch (< 25.0)
+		if (stamina < 25.0) {
+			is_recovering <- true;
+		}
+
+		// 1. Nếu đang trong trạng thái hồi phục -> ưu tiên rút lui ra ngoài sân để bảo toàn mạng sống
+		if (is_recovering) {
+			u_wander <- 100.0;
+		} else {
+			list<Evacuee> target_evacuees <- Evacuee where (not each.is_escaped);
 			if (!empty(target_evacuees)) {
-				current_action <- "GUIDE";
+				// Điểm cơ bản khi có người cần hỗ trợ trong tòa nhà (Bảng 2.3 đề bài)
+				u_guide <- u_guide + 60.0;
+
+				Evacuee nearest_evacuee <- target_evacuees closest_to self;
+				if (nearest_evacuee != nil) {
+					// Cộng điểm ưu tiên trạng thái khi người dân hoảng loạn cao
+					if (nearest_evacuee.panic_level > 50.0) {
+						u_guide <- u_guide + 30.0;
+					}
+					if (nearest_evacuee.panic_level > 80.0) {
+						u_guide <- u_guide + 40.0;
+					}
+				}
 			} else {
-				current_action <- "WANDER";
+				u_wander <- 30.0;
+			}
+		}
+
+		// Phân giải hòa điểm Tie-break: GUIDE > WANDER
+		if (u_guide >= u_wander and u_guide > 0.0 and not is_recovering) {
+			current_action <- "GUIDE";
+		} else {
+			current_action <- "WANDER";
 		}
 	}
 
@@ -863,6 +964,11 @@ species Rescuer parent: RescueWorker {
 	reflex main_decision {
 		do compute_utility;
 
+		if (current_action = "WAITING") {
+			// Đang chờ lệnh điều động ngoài sân
+			return;
+		}
+
 		if (current_action = "GUIDE") {
 			list<Evacuee> unguided_evacuees <- Evacuee where (not each.is_escaped);
 			if (!empty(unguided_evacuees)) {
@@ -871,9 +977,18 @@ species Rescuer parent: RescueWorker {
 				do guide(target);
 			}
 		} else {
-			// Khi không còn ai cần cứu -> rút lui ra ngoài sân an toàn, không đứng chắn cửa exit
+			// WANDER: Khi không còn ai cần cứu HOẶC đang kiệt sức (is_recovering) -> rút lui ra ngoài sân an toàn
 			floor_cell my_cell <- floor_cell(location);
-			if (my_cell = nil or not my_cell.is_outside) {
+			if (my_cell != nil and my_cell.is_outside) {
+				// Hồi phục thể lực ngoài không khí trong lành
+				if (stamina < 100.0) {
+					stamina <- min(100.0, stamina + 2.0);
+				}
+				// Khắc phục dao động ngưỡng (Review CodeRabbit): Chỉ kết thúc hồi phục khi stamina >= 80.0
+				if (stamina >= 80.0) {
+					is_recovering <- false;
+				}
+			} else {
 				floor_cell nearest_exit <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 				list<floor_cell> outside_cells <- floor_cell where (each.is_outside and not each.is_wall);
 				floor_cell safe_outside <- (nearest_exit != nil) ? (outside_cells closest_to nearest_exit) : (outside_cells closest_to self);
@@ -903,9 +1018,9 @@ species Fire {
 	bool is_active <- true;
 	rgb color <- #red;
 
-	// 1. Lan truyền lửa ngẫu nhiên
+	// 1. Lan truyền lửa ngẫu nhiên theo tỉ lệ fire_spread_rate
 	reflex spread {
-		if (is_active and flip(0.02)) {
+		if (is_active and flip(fire_spread_rate)) {
 			floor_cell current_cell <- floor_cell(location);
 			if (current_cell != nil) {
 			// Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
@@ -959,6 +1074,14 @@ species Fire {
 
 // ============ EXPERIMENT ============
 experiment FireEvacuation type: gui {
+	// Cấu hình tham số mô phỏng (Hỗ trợ kiểm thử Stress-test 50-200 tác tử Tuần 5)
+	parameter "Số người sơ tán (Evacuees):" var: nb_evacuees min: 20 max: 200 step: 10 category: "Cấu hình Tác tử";
+	parameter "Độ trễ cứu hộ (Dispatch Delay):" var: rescue_dispatch_delay min: 0 max: 60 step: 5 category: "Cấu hình Tác tử";
+	parameter "Số lính cứu hỏa (Firefighters):" var: nb_firefighters min: 1 max: 5 step: 1 category: "Cấu hình Tác tử";
+	parameter "Số nhân viên cứu nạn (Rescuers):" var: nb_rescuers min: 1 max: 4 step: 1 category: "Cấu hình Tác tử";
+	parameter "Số ổ lửa ban đầu (Fires):" var: nb_initial_fires min: 1 max: 5 step: 1 category: "Môi trường";
+	parameter "Tốc độ lan lửa (Spread Rate):" var: fire_spread_rate min: 0.02 max: 0.12 step: 0.01 category: "Môi trường";
+
 	output {
 		display map {
 			grid floor_cell;

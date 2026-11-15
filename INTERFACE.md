@@ -25,11 +25,13 @@ global {
     int grid_width  <- 50;
     int grid_height <- 50;
 
-    // Số lượng tác tử
-    int nb_evacuees        <- 40;
+    // Số lượng tác tử & Tham số thử nghiệm (Tuần 5)
+    int nb_evacuees        <- 40;   // Hỗ trợ kiểm thử Stress-test 20 - 200 người
     int nb_firefighters    <- 2;
     int nb_rescuers        <- 1;
     int nb_initial_fires   <- 2;
+    float fire_spread_rate <- 0.05; // Tỉ lệ lan lửa mỗi cycle (tùy chỉnh 2% - 12%)
+    int rescue_dispatch_delay <- 0; // Độ trễ phản ứng cứu hộ (0 - 60 cycle)
 
     // Chỉ số toàn cục cho chart
     int nb_escaped <- 0;   // số người thoát thành công
@@ -87,6 +89,8 @@ grid floor_cell width: grid_width height: grid_height {
     bool is_room        <- false;  // phòng họp, khu làm việc, bếp, kho
     bool is_kitchen     <- false;  // bếp — nơi phát hỏa
     bool is_outside     <- false;  // bên ngoài tòa nhà
+    float smoke_density <- 0.0;    // nồng độ khói (0.0..1.0)
+    rgb  base_color     <- #white;
     rgb  color          <- #white;
 }
 ```
@@ -133,9 +137,10 @@ species Evacuee skills: [moving] {
 }
 
 species RescueWorker skills: [moving] {
-    float stamina <- 200.0;
-    float speed   <- 1.2;
-    float vision  <- 15.0;
+    float stamina       <- 200.0;
+    float speed         <- 1.2;
+    float vision        <- 15.0;
+    bool  is_recovering <- false;  // Trạng thái rút lui hồi sức ngoài sân (chống dao động ranh giới)
 }
 
 species Firefighter parent: RescueWorker {
@@ -163,11 +168,14 @@ species Fire {
 **Quy ước bắt buộc:**
 - `panic_level` luôn `clamp(panic_level, 0, 100)`.
 - `stamina` không âm, `<= 0` thì chết.
-- `water_supply` không âm, `<= 0` thì không được EXTINGUISH:
-  - Khi `water_supply <= 0`, Firefighter chuyển trạng thái `WANDER` với mục tiêu **rút lui ra ngoài sân (`is_outside`)**, **TUYỆT ĐỐI KHÔNG** dừng lại đứng chắn ở ô cửa thoát hiểm (`is_exit`) để tránh chặn đường `Evacuee`.
-  - **Cơ chế tiếp nước ngoài sân (Refill Water):**
-    + Khi Firefighter đã ra đến ô ngoài sân (`is_outside`), tạm dừng trừ `stamina` (an toàn, không hít khói).
-    + Sau khi ở ngoài sân đủ **20 cycle** tiếp nước từ xe cứu hỏa ngoài tòa nhà (`refill_timer >= 20`), `water_supply` được hồi phục đầy `100.0` và `refill_timer <- 0` để tiếp tục tiến vào tòa nhà dập lửa.
+- `water_supply` không âm, `<= 0` thì không được EXTINGUISH.
+- **Cơ chế rút lui sinh tồn & Tiếp nước ngoài sân (RescueWorker Retreat & Refill):**
+  - Khi `water_supply <= 0` HOẶC `stamina < 25.0` (nguy kịch do ngạt khói / nhiệt cao), tác tử kích hoạt `is_recovering <- true` và chuyển sang `WANDER` để **rút lui ra ngoài sân (`is_outside`)**, **TUYỆT ĐỐI KHÔNG** dừng lại đứng chắn ở ô cửa thoát hiểm (`is_exit`).
+  - **Hồi phục ngoài sân:**
+    + Khi đã ra đến ô ngoài sân (`is_outside`), tạm dừng trừ `stamina`.
+    + Được sơ cứu hồi phục thể lực `+2.0 stamina/cycle` (tối đa 100.0).
+    + Nếu hết nước: sau khi ở ngoài sân đủ **20 cycle** tiếp nước từ xe bồn cứu hỏa (`refill_timer >= 20`), `water_supply` được nạp đầy `100.0`.
+    + **Ngưỡng chống dao động ranh giới (Hysteresis):** Chỉ kết thúc trạng thái rút lui (`is_recovering <- false`) khi `stamina >= 80.0` và `water_supply > 0.0`. Khi đó tác tử mới quay lại tòa nhà làm nhiệm vụ.
 - `is_escaped = true` ⇒ không tính là thương vong.
 
 ### 3.3. Quy định hiển thị (`aspect default`)
@@ -330,21 +338,29 @@ ask Evacuee at_distance 1        { stamina -= 5.0; }
 ask RescueWorker at_distance 1   { stamina -= 3.0; }
 ```
 
-### 8.3. Lửa lan
+### 8.3. Lửa lan & Khuếch tán khói
 
 ```gaml
-if (is_active and flip(0.022)) { // 2.2% mỗi cycle
+// Lan lửa theo tỉ lệ fire_spread_rate (Tuần 5: tùy chỉnh 2% - 12%, mặc định 5%)
+if (is_active and flip(fire_spread_rate)) {
     floor_cell neighbor <- one_of(
         floor_cell(self.location).neighbors
-        where (not each.is_wall and not each.is_fire)
+        where (not each.is_wall and not each.is_fire and not each.is_outside)
     );
     if (neighbor != nil) {
         create Fire at: neighbor.location { intensity <- 50.0; }
         neighbor.is_fire        <- true;
         neighbor.is_fire_hazard <- true;
+        ask neighbor { do update_color; }
     }
 }
 ```
+
+- **Khuếch tán khói động (Smoke Diffusion):**
+  - Mỗi cycle (`every(1 #cycle)`), các ổ lửa sinh khói làm tăng `smoke_density` tại chỗ.
+  - Khói cuộn sang các ô lân cận theo gradient nồng độ (`transfer * 0.45`).
+  - Ô có nồng độ khói $> 0.05$ sẫm màu dần, $> 0.25$ trở thành vùng nguy hiểm `is_fire_hazard`.
+  - Khói tự động tiêu tán dần khi ổ lửa bị dập tắt.
 
 ### 8.4. Firefighter dập lửa & tiếp cận an toàn
 
@@ -379,10 +395,13 @@ target.panic_level <- max(0.0, target.panic_level - 10.0);
 ### 8.7. Evacuee: Bám theo cứu hộ & Gộp nhóm đám đông
 
 - **Đi theo Cứu hộ (`follow_leader`):**
-  - Người dân bám theo `RescueWorker` gần nhất trong tầm nhận biết.
-  - Khi cách xa Leader ($> 2.0$ ô): `do goto target: leader.location on: room_graph;`
-  - Khi đã đến sát Leader ($\le 2.0$ ô): cùng di chuyển theo hướng về lối thoát hiểm gần nhất (`floor_cell target_exit <- exit_cells closest_to self; do goto target: target_exit on: room_graph;`).
+  - **Quy tắc phân vai an toàn:** Người dân **CHỈ BÁM THEO `Rescuer`** (Nhân viên cứu nạn dẫn đường), **TUYỆT ĐỐI KHÔNG BÁM THEO `Firefighter`** (vì lính cứu hỏa đang tiến thẳng vào tâm đám cháy ở bếp để dập lửa).
+  - Khi cách xa Rescuer ($> 2.0$ ô): `do goto target: rescuer.location on: room_graph;`
+  - Khi đã đến sát Rescuer ($\le 2.0$ ô): cùng di chuyển theo hướng về lối thoát hiểm gần nhất (`floor_cell target_exit <- exit_cells closest_to self; do goto target: target_exit on: room_graph;`).
   - *Lưu ý an toàn:* Khi lại gần ngọn lửa, điểm `FLEE_FIRE` (tối đa 130) ưu tiên cao hơn `FOLLOW_LEADER` (tối đa 110) nên người dân sẽ tự động né lửa dạt ra an toàn.
+
+- **Cơ chế phòng kín & Hành lang (Smoke Alarm Absence):**
+  - Khi chưa thấy cửa thoát hiểm nhưng ngửi thấy mùi khói làm bất an (`panic_level >= 25.0`), người dân nhận điểm `u_evacuate + 55.0` để chủ động rời phòng họp kín chạy ra hành lang và tiếp tục di chuyển thẳng về phía cửa thoát hiểm.
 
 - **Gộp nhóm & Nghẽn dòng người (`flock`):**
   - Khi hoảng loạn cao (`panic_level > 50`) và có $\ge 3$ người dân xung quanh, người dân có tâm lý bầy đàn dồn lại thành cụm.
