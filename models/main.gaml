@@ -382,9 +382,9 @@ species Evacuee skills: [moving] {
 		floor_cell nearest_exit       <- empty(exit_cells) ? nil : (exit_cells closest_to self);
 		Fire nearest_fire             <- empty(Fire) ? nil : (Fire closest_to self);
 		
-		// Lọc chỉ những cứu hộ ĐÃ VÀO TRONG TÒA NHÀ trước khi chọn nearest_worker (Review của Leader)
-		list<RescueWorker> inside_responders <- ((Rescuer as list) + (Firefighter as list)) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
-		RescueWorker nearest_worker   <- empty(inside_responders) ? nil : (inside_responders closest_to self);
+		// Người dân chỉ bám theo Nhân viên Cứu nạn (Rescuer) ĐÃ VÀO TRONG TÒA NHÀ (Tuyệt đối không bám Lính cứu hỏa vì họ đang tiến vào tâm lửa)
+		list<Rescuer> inside_rescuers <- (Rescuer as list) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
+		Rescuer nearest_worker        <- empty(inside_rescuers) ? nil : (inside_rescuers closest_to self);
 		
 		floor_cell my_cell <- floor_cell(location);
 		bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
@@ -588,9 +588,9 @@ species Evacuee skills: [moving] {
 	            do evacuate(nearest_exit);
 	        }
 	    } else if (current_action = "FOLLOW_LEADER") {
-	        // Ưu tiên Rescuer, nếu không có thì bám theo Firefighter
-	        list<RescueWorker> responders <- (Rescuer as list) + (Firefighter as list);
-	        RescueWorker leader <- empty(responders) ? nil : (responders closest_to self);
+	        // Chỉ bám theo Nhân viên Cứu nạn (Rescuer) đã vào bên trong tòa nhà
+	        list<Rescuer> inside_rescuers <- (Rescuer as list) where (floor_cell(each.location) != nil and not floor_cell(each.location).is_outside);
+	        Rescuer leader <- empty(inside_rescuers) ? nil : (inside_rescuers closest_to self);
 	        if (leader != nil) {
 	            do follow_leader(leader);
 	        }
