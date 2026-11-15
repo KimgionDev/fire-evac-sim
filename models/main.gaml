@@ -16,6 +16,8 @@ global {
 	int nb_firefighters <- 2;
 	int nb_rescuers <- 1;
 	int nb_initial_fires <- 2;
+	float fire_spread_rate <- 0.05; // Tỉ lệ lan lửa mỗi cycle (mặc định 5%)
+	int rescue_dispatch_delay <- 0; // Độ trễ phản ứng cứu hộ (số cycle chờ lệnh điều động)
 
 	// Chỉ số toàn cục cho chart
 	int nb_escaped <- 0;
@@ -291,33 +293,38 @@ global {
 		nb_panic <- Evacuee count (each.panic_level > 70.0);
 	}
 
-	reflex update_smoke when: (every(2 #cycle)) {
-		// Khói phát tán từ các ổ lửa đang hoạt động
+	reflex update_smoke when: (every(1 #cycle)) {
+		// 1. Nguồn sinh khói từ các ổ lửa đang hoạt động
 		ask Fire where (each.is_active) {
 			floor_cell fc <- floor_cell(location);
 			if (fc != nil) {
 				fc.smoke_density <- 1.0;
 				fc.is_fire_hazard <- true;
-				// Lan tỏa sang các ô sàn lân cận đi được
-				list<floor_cell> safe_neighbors <- fc.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
-				ask safe_neighbors {
-					if (not self.is_fire) {
-						self.smoke_density <- min(0.85, self.smoke_density + 0.35);
-						if (self.smoke_density > 0.25) {
-							self.is_fire_hazard <- true;
-						}
-						do update_color;
-					}
-				}
 				ask fc {
-				    do update_color;
+					do update_color;
 				}
 			}
 		}
 
-		// Khói tiêu tán dần ở những ô không có lửa
+		// 2. Khuếch tán khói lan truyền nhanh (Smoke Diffusion): Khói cuộn sang các ô lân cận theo gradient nồng độ
+		list<floor_cell> smoky_cells <- floor_cell where (each.smoke_density > 0.1 and not each.is_outside);
+		ask smoky_cells {
+			float transfer <- self.smoke_density * 0.45;
+			list<floor_cell> safe_neighbors <- self.neighbors where (each.is_floor and not each.is_wall and not each.is_outside);
+			ask safe_neighbors {
+				if (self.smoke_density < myself.smoke_density) {
+					self.smoke_density <- min(0.85, self.smoke_density + transfer * 0.5);
+					if (self.smoke_density > 0.25) {
+						self.is_fire_hazard <- true;
+					}
+					do update_color;
+				}
+			}
+		}
+
+		// 3. Khói tiêu tán dần ở những ô không có lửa (đặc biệt khi đám cháy đã bị dập tắt)
 		ask floor_cell where (each.smoke_density > 0.0 and not each.is_fire) {
-			self.smoke_density <- max(0.0, self.smoke_density - 0.05);
+			self.smoke_density <- max(0.0, self.smoke_density - 0.015);
 			self.is_fire_hazard <- (self.smoke_density > 0.25);
 			do update_color;
 		}
@@ -401,6 +408,10 @@ species Evacuee skills: [moving] {
 			u_evacuate <- u_evacuate + 60.0;
 			if (dist_exit <= 2.0) { u_evacuate <- u_evacuate + 40.0; }
 			if (stamina < 20.0)   { u_evacuate <- u_evacuate + 40.0; }
+		} else if (!in_corridor and panic_level >= 25.0) {
+			// Cơ chế phòng kín khi không có còi báo cháy: ngửi thấy mùi khói / bất an (panic >= 25)
+			// Thôi thúc nhân viên mở cửa phòng chạy ra hành lang chính để tìm lối thoát
+			u_evacuate <- u_evacuate + 55.0;
 		}
 
 		// 3. FOLLOW_LEADER (Bám theo cứu hộ khi cứu hộ vào trong nhà)
@@ -455,7 +466,17 @@ species Evacuee skills: [moving] {
 	}
 }
 	action evacuate (floor_cell target_exit) {
-		if (target_exit != nil) {
+		floor_cell my_cell <- floor_cell(location);
+		bool in_corridor   <- (my_cell != nil and my_cell.grid_y >= 16 and my_cell.grid_y <= 18);
+
+		// Nếu còn ở trong phòng kín và chưa thấy cửa thoát hiểm: Di chuyển ra ô hành lang gần nhất
+		if (!in_corridor and (target_exit = nil or (self distance_to target_exit) >= vision)) {
+			list<floor_cell> corridor_cells <- floor_cell where (each.is_floor and not each.is_wall and each.grid_y >= 16 and each.grid_y <= 18);
+			floor_cell exit_to_corridor     <- empty(corridor_cells) ? nil : (corridor_cells closest_to self);
+			if (exit_to_corridor != nil) {
+				do goto target: exit_to_corridor.location on: room_graph;
+			}
+		} else if (target_exit != nil) {
 			// Cơ chế nghẽn dòng người khi chen chúc tại cửa hẹp / cửa thoát hiểm
 			int crowd_count <- length(Evacuee at_distance 1.5 where (each != self and not each.is_escaped));
 			float speed_factor <- max(0.4, 1.0 - (crowd_count * 0.15)); // Giảm tốc độ rõ rệt khi chen lấn
@@ -534,6 +555,11 @@ species Evacuee skills: [moving] {
 	        // Tăng độ nhạy hoảng loạn: khi lửa ở cự ly nguy hiểm (<= 3 ô), panic tăng nhanh hơn
 	        if (nearest_fire != nil and (self distance_to nearest_fire) <= 3.0) {
 	            panic_inc <- panic_inc + 1.0;
+	        }
+	        // Nhận biết khói: nếu ô đang đứng có khói lan tới -> ngửi thấy khói làm tăng độ bất an
+	        floor_cell my_fc <- floor_cell(location);
+	        if (my_fc != nil and my_fc.smoke_density > 0.05) {
+	            panic_inc <- panic_inc + 0.5;
 	        }
 	        panic_level <- min(100.0, max(0.0, panic_level + panic_inc));
 	    } else {
@@ -665,6 +691,12 @@ species Firefighter parent: RescueWorker {
 
 	// Tính toán điểm tiện ích (Utility)
 	action compute_utility {
+		// Kiểm tra thời gian trễ phản ứng cứu hộ (Dispatch Delay)
+		if (cycle < rescue_dispatch_delay) {
+			current_action <- "WAITING";
+			return;
+		}
+
 		u_extinguish <- 0.0;
 		u_move_fire  <- 0.0;
 		u_wander     <- 0.0;
@@ -737,6 +769,11 @@ species Firefighter parent: RescueWorker {
 	reflex main_decision {
 
 		do compute_utility;
+
+		if (current_action = "WAITING") {
+			// Đang chờ lệnh điều động ngoài sân
+			return;
+		}
 
 		Fire target_fire <- empty(Fire) ? nil : (Fire closest_to self);
 
@@ -839,6 +876,12 @@ species Rescuer parent: RescueWorker {
 	}
 
 	action compute_utility {
+		// Kiểm tra thời gian trễ phản ứng cứu hộ (Dispatch Delay)
+		if (cycle < rescue_dispatch_delay) {
+			current_action <- "WAITING";
+			return;
+		}
+
 		u_guide <- 0.0;
 		u_wander <- 0.0;
 
@@ -894,6 +937,11 @@ species Rescuer parent: RescueWorker {
 	reflex main_decision {
 		do compute_utility;
 
+		if (current_action = "WAITING") {
+			// Đang chờ lệnh điều động ngoài sân
+			return;
+		}
+
 		if (current_action = "GUIDE") {
 			list<Evacuee> unguided_evacuees <- Evacuee where (not each.is_escaped);
 			if (!empty(unguided_evacuees)) {
@@ -934,9 +982,9 @@ species Fire {
 	bool is_active <- true;
 	rgb color <- #red;
 
-	// 1. Lan truyền lửa ngẫu nhiên (Tốc độ cân bằng 2.2% / cycle theo Tuần 4 & INTERFACE.md)
+	// 1. Lan truyền lửa ngẫu nhiên theo tỉ lệ fire_spread_rate
 	reflex spread {
-		if (is_active and flip(0.022)) {
+		if (is_active and flip(fire_spread_rate)) {
 			floor_cell current_cell <- floor_cell(location);
 			if (current_cell != nil) {
 			// Không lan vào tường, ô đã có lửa, và không lan ra ngoài sân
@@ -990,11 +1038,13 @@ species Fire {
 
 // ============ EXPERIMENT ============
 experiment FireEvacuation type: gui {
-	// Cấu hình tham số mô phỏng (Hỗ trợ kiểm thử Stress-test 50-100 tác tử Tuần 5)
-	parameter "Số người sơ tán (Evacuees):" var: nb_evacuees min: 20 max: 100 step: 10 category: "Cấu hình Tác tử";
+	// Cấu hình tham số mô phỏng (Hỗ trợ kiểm thử Stress-test 50-200 tác tử Tuần 5)
+	parameter "Số người sơ tán (Evacuees):" var: nb_evacuees min: 20 max: 200 step: 10 category: "Cấu hình Tác tử";
+	parameter "Độ trễ cứu hộ (Dispatch Delay):" var: rescue_dispatch_delay min: 0 max: 60 step: 5 category: "Cấu hình Tác tử";
 	parameter "Số lính cứu hỏa (Firefighters):" var: nb_firefighters min: 1 max: 5 step: 1 category: "Cấu hình Tác tử";
 	parameter "Số nhân viên cứu nạn (Rescuers):" var: nb_rescuers min: 1 max: 4 step: 1 category: "Cấu hình Tác tử";
 	parameter "Số ổ lửa ban đầu (Fires):" var: nb_initial_fires min: 1 max: 5 step: 1 category: "Môi trường";
+	parameter "Tốc độ lan lửa (Spread Rate):" var: fire_spread_rate min: 0.02 max: 0.12 step: 0.01 category: "Môi trường";
 
 	output {
 		display map {
